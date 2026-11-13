@@ -57,7 +57,7 @@ milk bottle → MILK BOOST · snack cup → SNACK BOOST · floating crib → NAP
 
 Rooms hold **2–6 players**: there are 6 toddlers and picks must be unique, so the server caps a
 room at 6. (Add another toddler to `ROSTER` *and* `CHARACTER_IDS` in `shared/protocol.ts`, plus a
-3D model in `Toddler.ts` and a CSS portrait, and rooms, local select and TV Party all grow by
+3D model in `Toddler.ts` and a portrait PNG in `public/portraits/`, and rooms, local select and TV Party all grow by
 themselves.) If your connection drops, the game reconnects automatically and you keep
 your seat for 20 seconds, even through a page reload. Esc leaves the room.
 
@@ -208,7 +208,8 @@ src/net/RemotePlayer.ts  Another player's walker: snapshot buffer + interpolatio
 src/net/serverUrl.ts   Picks the server address (?server=, VITE_SERVER_URL, same origin, :2567)
 tests/protocol-test.mjs  Raw-WebSocket test of the server rules
 src/main.ts            Entry: loads the font, creates the Engine, runs the render loop
-src/style.css          Playful HUD/menu styling + CSS-drawn toddler portraits
+src/style.css          Playful HUD/menu styling (select cards, HUD, menus)
+public/portraits/      Illustrated toddler portraits (one PNG per roster id)
 src/game/Game.ts       Shared world (lights, shadows, house, track, pickups) + state machine:
                        title → select → countdown → racing → finished
 src/game/Player.ts     Everything for ONE racer: walker, input, camera, lap timer, HUD, effects
@@ -250,7 +251,8 @@ server-controlled mode (`autoRespawn = false`, `take()` / `restore()` when the s
 2. **Add a pickup.** Add `"bubbles"` to the `PickupKind` union. TypeScript will now point at every
    place you need to handle it (tuning table, model, layout). Make it spin the walker around!
 3. **Add a toddler.** Add a seventh entry to `ROSTER` with a new accessory (e.g. `"cap"`), then teach
-   `Toddler.ts` and the CSS portrait how to draw it. Add its id to `CHARACTER_IDS` in
+   `Toddler.ts` how to draw it, and drop a square PNG named `<id>.png` into
+   `public/portraits/`. Add its id to `CHARACTER_IDS` in
    `shared/protocol.ts` too, and online rooms, local select and TV Party all grow to 7 players.
 4. **Save best laps.** Store each toddler's best lap in `localStorage` and show it on the select cards.
 5. **New room.** Add a bathroom to `House.ts` (tile floor, bathtub collider) and move some

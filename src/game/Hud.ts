@@ -6,7 +6,7 @@
  *    viewport, so split-screen gets one HUD per half.
  *  - Screens: the shared title, character select, countdown and finish screens
  *    (the online lobby screens live in src/net/OnlineSession.ts).
- *  - portraitHTML(): a little CSS-drawn face for any roster entry.
+ *  - portraitHTML(): the illustrated portrait image for any roster entry.
  *
  * We use normal DOM elements instead of 3D text: simpler, crisp, styled with CSS.
  */
@@ -21,13 +21,21 @@ export function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   return el as T;
 }
 
-/** A CSS portrait: face circle in the skin tone, hair, eyes, smile, accessory. */
+/**
+ * Illustrated portrait for any roster entry.
+ *
+ * Every menu and HUD that shows a toddler (select cards, lobby lists, the
+ * in-race HUD, results, and the phone controller) calls this one helper, so
+ * swapping the art here updates the whole game.
+ *
+ * The PNGs live in `public/portraits/` and are named after each roster `id`
+ * (for example `dj-the-dasher.png`). Vite copies that folder to the site
+ * root as-is. We use a "./" URL because vite.config.ts sets `base: "./"`
+ * (relative paths, so the build works from any folder).
+ */
 export function portraitHTML(who: RosterEntry, size = 64): string {
-  return `<div class="portrait hair-${who.hairStyle} acc-${who.accessory}" style="--skin:${who.skinTone};--hair:${who.hairColor};--accent:${who.accentColor};--size:${size}px">
-    <div class="p-puff l"></div><div class="p-puff r"></div>
-    <div class="p-head"><div class="p-hair"></div><i class="p-eye l"></i><i class="p-eye r"></i><i class="p-cheek l"></i><i class="p-cheek r"></i><i class="p-smile"></i></div>
-    <div class="p-acc"></div>
-  </div>`;
+  const src = `./portraits/${who.id}.png`;
+  return `<div class="portrait" style="--size:${size}px"><img class="portrait-art" src="${src}" width="${size}" height="${size}" alt="${escapeHtml(who.name)}" draggable="false"></div>`;
 }
 
 export interface HudFrame {

@@ -24,33 +24,13 @@ button, input { touch-action: manipulation; }
 .hidden { display: none !important; }
 button { font-family: var(--font); }
 
-/* ---------- Portrait (CSS-drawn toddler face) ---------- */
-.portrait { position: relative; width: var(--size); height: var(--size); flex: none; }
-.p-head { position: absolute; inset: 8%; border-radius: 50%; background: var(--skin); overflow: hidden;
-  box-shadow: inset -4px -6px 0 rgba(0,0,0,0.12), 0 2px 0 rgba(0,0,0,0.15); }
-.p-hair { position: absolute; left: -5%; right: -5%; top: -42%; height: 70%; border-radius: 50%; background: var(--hair); }
-.hair-curly .p-hair { top: -36%; box-shadow: 0 -2px 0 2px var(--hair); }
-.p-eye { position: absolute; top: 46%; width: 12%; height: 15%; border-radius: 50%; background: #1a120c; }
-.p-eye::after { content: ""; position: absolute; width: 35%; height: 35%; top: 15%; right: 15%; border-radius: 50%; background: #fff; }
-.p-eye.l { left: 28%; } .p-eye.r { right: 28%; }
-.p-cheek { position: absolute; top: 62%; width: 14%; height: 8%; border-radius: 50%; background: rgba(217, 113, 79, 0.4); }
-.p-cheek.l { left: 16%; } .p-cheek.r { right: 16%; }
-.p-smile { position: absolute; left: 36%; width: 28%; top: 62%; height: 14%; border: calc(var(--size) * 0.035) solid #7a1d28;
-  border-top: none; border-radius: 0 0 60% 60%; }
-.p-puff { display: none; position: absolute; top: 2%; width: 34%; height: 34%; border-radius: 50%; background: var(--hair); }
-.hair-puffs .p-puff { display: block; } .p-puff.l { left: -6%; } .p-puff.r { right: -6%; }
-.p-acc { position: absolute; pointer-events: none; }
-.acc-crown .p-acc { left: 28%; top: -10%; width: 44%; height: 26%; background: #ffcc33;
-  clip-path: polygon(0 100%, 0 20%, 20% 60%, 35% 0, 50% 55%, 65% 0, 80% 60%, 100% 20%, 100% 100%); }
-.acc-tiara .p-acc { left: 32%; top: 0; width: 36%; height: 18%; background: linear-gradient(#ffe27a, #ffb800);
-  clip-path: polygon(0 100%, 15% 40%, 35% 70%, 50% 0, 65% 70%, 85% 40%, 100% 100%); }
-.acc-tiara .p-acc::after { content: ""; }
-.acc-tiara::after { content: ""; position: absolute; right: -4%; top: 2%; width: 26%; height: 16%; background: var(--accent);
-  clip-path: polygon(0 0, 50% 40%, 100% 0, 100% 100%, 50% 60%, 0 100%); }
-.acc-headphones .p-acc { left: 2%; right: 2%; top: 2%; height: 60%; border: calc(var(--size) * 0.07) solid var(--accent);
-  border-bottom: none; border-radius: 50% 50% 0 0; }
-.acc-headphones::after { content: ""; position: absolute; left: 0; right: 0; top: 40%; height: 30%;
-  background: radial-gradient(circle at 6% 50%, var(--accent) 0 9%, transparent 10%), radial-gradient(circle at 94% 50%, var(--accent) 0 9%, transparent 10%); }
+/* ---------- Portrait (illustrated PNG from public/portraits/) ---------- */
+/* --size is set inline by portraitHTML(). object-fit: contain keeps headphones,
+   crowns, teddy ears and nightcap tassels inside the box instead of cropping them. */
+.portrait { position: relative; width: var(--size); height: var(--size); flex: none;
+  overflow: hidden; border-radius: 22%; background: #fff; }
+.portrait .portrait-art { width: 100%; height: 100%; object-fit: contain; object-position: center;
+  display: block; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 
 /* ---------- HUD ---------- */
 #huds { position: fixed; inset: 0; pointer-events: none; }
@@ -298,8 +278,13 @@ body:has(#touch:not(.hidden)) .speedo { transform-origin: bottom center; transfo
 .cards { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 16px; }
 .char-card { width: auto; min-width: 0; }
 @media (max-width: 760px) and (orientation: portrait) {
+  /* 2×3 grid on a tall phone: keep the card list itself scrollable, and
+     shrink the portrait a little so two full rows (plus a peek of the third)
+     fit without the hint covering names. */
   .cards { grid-template-columns: repeat(2, 1fr); gap: 8px; max-height: 62vh; overflow-y: auto; touch-action: pan-y; padding: 8px; }
-  .char-card { width: auto; flex-direction: column; }
+  .char-card { width: auto; flex-direction: column; padding: 8px 8px 8px; border-width: 5px; gap: 2px; }
+  .char-card .portrait { --size: 80px !important; }
+  .char-name { font-size: 16px; } .char-tag { font-size: 11px; }
 }
 @media (max-height: 500px) {
   .cards { grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 10px; }
@@ -307,23 +292,6 @@ body:has(#touch:not(.hidden)) .speedo { transform-origin: bottom center; transfo
 .lobby-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 @media (max-width: 520px) { .lobby-cards { grid-template-columns: repeat(2, 1fr); } }
 
-/* ---------- New toddler portraits (teddy / chef / nightcap) ---------- */
-.acc-teddy .p-puff { display: block; background: #6b3e1f; top: -10%; width: 30%; height: 30%; box-shadow: inset 0 0 0 4px rgba(240, 210, 168, 0.85); }
-.acc-teddy .p-puff.l { left: -4%; } .acc-teddy .p-puff.r { right: -4%; }
-.acc-teddy .p-hair { top: -30%; height: 58%; background: #d4924a; } /* hood */
-.acc-chef .p-acc { left: 18%; right: 18%; top: -14%; height: 28%;
-  background: repeating-linear-gradient(90deg, #e8b04a 0 18%, #f4e0a8 18% 32%);
-  clip-path: polygon(0 100%, 6% 30%, 18% 80%, 30% 10%, 42% 80%, 50% 0, 58% 80%, 70% 10%, 82% 80%, 94% 30%, 100% 100%);
-  border-radius: 4px; }
-.acc-chef::before { content: ""; position: absolute; left: 22%; right: 22%; top: 78%; height: 28%; background: #fff8ee;
-  border: 2px solid #e8b04a; border-radius: 0 0 40% 40%; }
-.acc-nightcap .p-acc { left: 18%; top: -18%; width: 70%; height: 48%;
-  background: #3d2e7a; clip-path: polygon(10% 100%, 0 20%, 100% 0, 55% 100%);
-  border-radius: 8px 8px 0 0; }
-.acc-nightcap .p-acc::after { content: ""; position: absolute; right: -10%; top: -16%; width: 28%; height: 38%;
-  background: var(--accent, #ffd400); border-radius: 50%; }
-.sleepy .p-eye { height: 8%; top: 52%; overflow: hidden; }
-.sleepy .p-eye::after { top: 40%; }
 
 /* ---------- TV Party: 10-foot lobby ---------- */
 body.tv-mode .hud .who-name { font-size: 26px; }
