@@ -90,9 +90,19 @@ function setUpPhoneFriendlyPage(unlockAudio: () => void): void {
   for (const type of ["pointerdown", "touchend", "click", "keydown"]) {
     window.addEventListener(type, unlockAudio, { capture: true, passive: true });
   }
-  const typing = (t: EventTarget | null): boolean => t instanceof HTMLInputElement;
-  // Pull-to-refresh / page bounce: block finger-drags unless they're in a text box.
-  document.addEventListener("touchmove", (e) => !typing(e.target) && e.preventDefault(), { passive: false });
+  const typing = (t: EventTarget | null): boolean => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
+  // Block browser page-gestures ONLY on the 3D canvas and the on-screen driving
+  // pads. Menus must still scroll when they are taller than the phone, or the
+  // buttons / links under the fold can't be reached (especially on iPhone Safari).
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      if (typing(e.target)) return;
+      const el = e.target instanceof Element ? e.target : null;
+      if (el?.closest("#renderCanvas, #touch, .phone-pad")) e.preventDefault();
+    },
+    { passive: false },
+  );
   // iOS pinch-zoom ignores user-scalable=no, but these non-standard events can be cancelled.
   document.addEventListener("gesturestart", (e) => e.preventDefault());
   document.addEventListener("dblclick", (e) => e.preventDefault());

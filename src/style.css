@@ -12,10 +12,11 @@
   --font: "Fredoka", "Baloo 2", "Comic Sans MS", "Chalkboard SE", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #dfe9f5; color: var(--ink);
+html, body { margin: 0; height: 100%; height: 100dvh; overflow: hidden; background: #dfe9f5; color: var(--ink);
   font-family: var(--font); user-select: none; -webkit-user-select: none;
-  /* Phones: no pull-to-refresh/bounce, no long-press callouts, no grey tap flash, no browser gestures. */
-  overscroll-behavior: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; touch-action: none;
+  /* Phones: no pull-to-refresh on the PAGE, no long-press callouts, no grey tap flash.
+     Do not use touch-action: none here — that would also block scrolling the menus. */
+  overscroll-behavior: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 /* Buttons and text boxes still get taps (manipulation = tap without double-tap-zoom delay). */
 button, input { touch-action: manipulation; }
@@ -95,10 +96,16 @@ button { font-family: var(--font); }
 @keyframes pop { 0% { transform: scale(2) rotate(-10deg); opacity: 0; } 30% { transform: scale(1) rotate(3deg); opacity: 1; } 100% { transform: scale(0.9); opacity: 0.95; } }
 
 /* ---------- Screens ---------- */
-.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+/* Full-screen menus. If the card is taller than the phone, THIS layer scrolls
+   (the page / canvas underneath stay still). "safe" alignment means: when the
+   card doesn't fit, start at the top so you can scroll down to the last button. */
+.screen { position: fixed; inset: 0; display: flex; align-items: safe center; justify-content: safe center;
+  overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+  overscroll-behavior: contain;
+  padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
 .card { position: relative; overflow: hidden; text-align: center; padding: 34px 40px 26px; background: rgba(255, 255, 255, 0.93); border-radius: 28px;
   border: 5px solid var(--navy); box-shadow: 0 10px 0 rgba(19,35,91,0.2), 0 30px 60px rgba(19,35,91,0.25); max-width: 94vw; }
-.title-screen { justify-content: flex-start; padding-left: 5vw; }
+.title-screen { justify-content: safe flex-start; padding-left: max(5vw, env(safe-area-inset-left)); }
 .title-card { max-width: 520px; }
 .logo { margin: 0; font-size: 92px; line-height: 1; font-weight: 700; letter-spacing: 2px; }
 .logo span { display: inline-block; color: #fff; -webkit-text-stroke: 5px var(--ink); paint-order: stroke fill;
@@ -126,7 +133,7 @@ button { font-family: var(--font); }
 .btn.ghost { background: #fff; color: var(--ink); }
 .hint { margin-top: 10px; font-size: 13px; font-weight: 600; opacity: 0.6; }
 
-.select-screen { flex-direction: column; justify-content: flex-end; padding-bottom: 4vh; gap: 10px; }
+.select-screen { flex-direction: column; justify-content: safe flex-end; align-items: safe center; padding-top: 12vh; padding-bottom: 4vh; gap: 10px; }
 .select-title { margin: 0; font-size: 54px; color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill;
   text-shadow: 0 6px 0 rgba(19,35,91,0.3); position: absolute; top: 3vh; }
 .cards { display: flex; gap: 22px; }
@@ -214,7 +221,7 @@ button { font-family: var(--font); }
   background: rgba(19, 35, 91, 0.82); color: #fff; pointer-events: auto; }
 .rotate-hint button { border: none; background: rgba(255,255,255,0.2); color: #fff; width: 24px; height: 24px; border-radius: 50%; font-size: 16px; line-height: 1; padding: 0; }
 /* Shown for a few seconds whenever the phone is (turned) upright, then fades away by itself. */
-@media (orientation: portrait) and (pointer: coarse) { .title-screen { align-items: flex-end; } .title-screen .card { margin-bottom: max(2.5vh, env(safe-area-inset-bottom)); } }
+@media (orientation: portrait) and (pointer: coarse) { .title-screen { align-items: safe center; } .title-screen .card { margin-bottom: max(2.5vh, env(safe-area-inset-bottom)); } }
 @media (orientation: portrait) and (pointer: coarse) { .rotate-hint:not(.dismissed) { display: flex; animation: hint-fade 8s forwards; } }
 /* Never during a race (it would cover the countdown). */
 body:has(.hud:not(.hidden)) .rotate-hint { display: none !important; }
@@ -253,7 +260,7 @@ body:has(#touch:not(.hidden)) .speedo { transform-origin: bottom center; transfo
 }
 /* Short screens (phone sideways): compact menus so everything fits without scrolling. */
 @media (max-height: 500px) {
-  .card { padding: 22px 22px 12px; border-radius: 22px; max-height: 96vh; }
+  .card { padding: 22px 22px 12px; border-radius: 22px; }
   .card::before { height: 10px; }
   .logo { font-size: 46px; }
   .tag { margin: 4px 0 8px; font-size: 14px; }
@@ -281,7 +288,7 @@ body:has(#touch:not(.hidden)) .speedo { transform-origin: bottom center; transfo
   .lobby-players { margin: 6px 0; gap: 4px; } .lobby-pick { width: 110px; padding: 4px; } .lobby-pick .portrait { --size: 44px !important; }
   .online-card .or { margin: 8px 0 6px; }
 }
-@media (max-width: 760px) and (orientation: portrait) { .logo { font-size: 56px; } .cards { flex-direction: column; gap: 8px; } .char-card { width: 80vw; flex-direction: row; } .speedo { bottom: 100px; } .title-screen { justify-content: center; padding: 0; } .lobby-card { min-width: 0; } .lobby-pick { width: 30vw; } }
+@media (max-width: 760px) and (orientation: portrait) { .logo { font-size: 56px; } .cards { flex-direction: column; gap: 8px; } .char-card { width: 80vw; flex-direction: row; } .speedo { bottom: 100px; } .title-screen { justify-content: safe center; padding-left: max(8px, env(safe-area-inset-left)); } .lobby-card { min-width: 0; } .lobby-pick { width: 30vw; } }
 .lobby-card .finish-buttons .btn { font-size: 18px; padding: 10px 20px; white-space: nowrap; }
 
 /* ---------- Place chip & 6-card select ---------- */
@@ -324,7 +331,7 @@ body.tv-mode .hud .lap-line { font-size: 22px; } body.tv-mode .hud .lap-line b {
 body.tv-mode .time-panel .row { font-size: 22px; }
 body.tv-mode .speed { font-size: 58px; }
 body.tv-mode .hud { box-shadow: inset 0 0 0 6px var(--player, var(--blue)); }
-.tv-lobby { align-items: stretch; justify-content: center; padding: 3vh 4vw; background: linear-gradient(180deg, rgba(19,35,91,0.2), rgba(19,35,91,0.45)); }
+.tv-lobby { align-items: safe center; justify-content: safe center; padding: 3vh 4vw; background: linear-gradient(180deg, rgba(19,35,91,0.2), rgba(19,35,91,0.45)); }
 .tv-lobby-inner { width: min(1400px, 96vw); text-align: center; background: rgba(255,255,255,0.94); border: 6px solid var(--navy);
   border-radius: 36px; padding: 28px 40px 22px; box-shadow: 0 14px 0 rgba(19,35,91,0.25), 0 40px 80px rgba(19,35,91,0.3); position: relative; overflow: hidden; }
 .tv-lobby-inner::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 18px; background: var(--checker); }
@@ -365,9 +372,9 @@ body.tv-mode .hud { box-shadow: inset 0 0 0 6px var(--player, var(--blue)); }
 /* ---------- Phone join + controller ---------- */
 body.phone-ui #renderCanvas, body.phone-ui #huds, body.phone-ui .rotate-hint, body.phone-ui #touch { display: none !important; }
 body.phone-ui { background: #0e1a42; }
-.phone-join { background: radial-gradient(ellipse at top, #1f4fff, #0e1a42 70%); align-items: stretch; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
+.phone-join { background: radial-gradient(ellipse at top, #1f4fff, #0e1a42 70%); align-items: safe center; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
 .phone-join-card { width: min(520px, 100%); margin: auto; background: rgba(255,255,255,0.96); border: 5px solid var(--navy);
-  border-radius: 28px; padding: 20px 16px 16px; text-align: center; max-height: 100%; overflow: auto; touch-action: pan-y; }
+  border-radius: 28px; padding: 20px 16px 16px; text-align: center; overflow: visible; }
 .phone-title { margin: 0; font-size: 48px; color: var(--blue); }
 .phone-sub { margin: 4px 0 12px; font-weight: 600; }
 .phone-subtle { font-weight: 700; opacity: 0.7; margin: 8px 0 6px; }

@@ -3,11 +3,14 @@
  * Walker.ts turn an entry into a 3D model, and Hud.ts draws a portrait from it.
  * Everyone shares the same handling (see WALKER_TUNING), so picks are about style.
  *
+ * The colours and accessories follow the illustrated character portraits
+ * (big-head chibi toddlers): headphones, crowns, a teddy hood, a nightcap…
+ *
  * TypeScript tip: a union of string literals ("short" | "curly" | "puffs")
  * means the compiler rejects typos like "puff".
  */
 export type HairStyle = "short" | "curly" | "puffs";
-export type Accessory = "headphones" | "crown" | "tiara" | "teddy" | "chef" | "nightcap";
+export type Accessory = "headphones" | "crown" | "tiara" | "teddy" | "nightcap";
 
 export interface RosterEntry {
   id: string;
@@ -21,7 +24,7 @@ export interface RosterEntry {
   walkerTrim: string; // tray / bumper colour
   walkerStripe?: string; // optional racing stripes (the `?` makes the field optional)
   accessory: Accessory;
-  accentColor: string; // headphones, cape, bow...
+  accentColor: string; // headphones, bow, tassel, hoodie trim…
 }
 
 export const ROSTER: readonly RosterEntry[] = [
@@ -29,83 +32,83 @@ export const ROSTER: readonly RosterEntry[] = [
     id: "dj-the-dasher",
     name: "DJ the Dasher",
     tagline: "Fastest feet on the block",
-    skinTone: "#6B4226",
-    hairColor: "#140c07",
-    hairStyle: "short",
-    shirtColor: "#ff8a1e",
+    skinTone: "#7C3F1E", // rich dark brown
+    hairColor: "#120C08",
+    hairStyle: "curly", // short tight curls, like the portrait
+    shirtColor: "#1A1A1A", // black hoodie
     walkerColor: "#1f4fff", // royal blue
     walkerTrim: "#ff8a00", // orange
-    walkerStripe: "#ff8a00", // orange racing stripes
+    walkerStripe: "#ff8a00",
     accessory: "headphones",
-    accentColor: "#ff8a1e",
+    accentColor: "#FF8A14", // orange cups, zipper, music note
   },
   {
     id: "adam-the-great",
     name: "Adam The Great",
     tagline: "Ruler of the living room",
-    skinTone: "#704529",
-    hairColor: "#1a0f08",
+    skinTone: "#7A4320",
+    hairColor: "#140C08",
     hairStyle: "curly",
-    shirtColor: "#f4f4f4",
-    walkerColor: "#16a83a", // bold green
-    walkerTrim: "#ffc61e", // gold
-    walkerStripe: "#e3191f", // red racing stripes
+    shirtColor: "#6B3AA8", // purple top (no cape — the portrait doesn't have one)
+    walkerColor: "#16a83a",
+    walkerTrim: "#ffc61e",
+    walkerStripe: "#e3191f",
     accessory: "crown",
-    accentColor: "#c8102e",
+    accentColor: "#FFD24A", // gold crown
   },
   {
     id: "princess-logan",
     name: "Princess Logan",
     tagline: "Sparkles at top speed",
-    skinTone: "#C68E5F",
-    hairColor: "#2B1A10",
+    skinTone: "#C9956A", // light brown
+    hairColor: "#2A1810",
     hairStyle: "puffs",
-    shirtColor: "#c79bff",
+    shirtColor: "#E85AA0", // pink outfit (deeper so it does not wash out in-game)
     walkerColor: "#ff5fb0",
     walkerTrim: "#9b5cff",
     accessory: "tiara",
-    accentColor: "#ff4fa3",
+    accentColor: "#FF4FA3", // pink gem + bow
   },
   {
     id: "huggie",
     name: "Huggie",
     tagline: "A walking hug on wheels",
-    skinTone: "#A26B3C", // medium tan (existing three are unchanged)
-    hairColor: "#3A2212",
+    skinTone: "#8B4E2A", // warm brown
+    hairColor: "#2A1810",
     hairStyle: "short",
-    shirtColor: "#d4924a", // teddy onesie
-    walkerColor: "#e0a05a", // soft orange/tan
+    shirtColor: "#E0B57A", // tan teddy-bear onesie / hood
+    walkerColor: "#e0a05a",
     walkerTrim: "#8b5a2b",
     accessory: "teddy",
-    accentColor: "#6b3e1f",
+    accentColor: "#C4894A", // slightly deeper fur on the ears
   },
   {
     id: "snacks",
     name: "Snacks",
     tagline: "Always ready for a snack break",
-    skinTone: "#F0C49A", // light peach
-    hairColor: "#7A3E1A", // ginger-brown
-    hairStyle: "short",
-    shirtColor: "#fff6e0", // chef whites
-    walkerColor: "#ffd400", // yellow
-    walkerTrim: "#e3191f", // red
+    skinTone: "#F3C7A3", // fair / light peach
+    hairColor: "#C9A06A", // light brown golden curls
+    hairStyle: "curly",
+    shirtColor: "#FFF8E8", // white top with a yellow collar (built in Toddler.ts)
+    walkerColor: "#ffd400",
+    walkerTrim: "#e3191f",
     walkerStripe: "#e3191f",
-    accessory: "chef",
-    accentColor: "#e3191f",
+    accessory: "crown", // the portrait shows a gold crown, not a bib
+    accentColor: "#FFD24A",
   },
   {
     id: "mr-nap-time",
     name: "MrNapTime",
     tagline: "Champion of quiet time",
-    skinTone: "#4E2C18", // medium-deep brown
-    hairColor: "#1A0E08",
-    hairStyle: "short",
-    shirtColor: "#3d2e7a", // pajama purple
-    walkerColor: "#4b2e9a", // purple
-    walkerTrim: "#1a1a4a", // navy
-    walkerStripe: "#ffd400", // gold stars accent
+    skinTone: "#6E3518",
+    hairColor: "#140C08",
+    hairStyle: "curly", // curls peek out from under the nightcap
+    shirtColor: "#5B32A8", // purple pajamas
+    walkerColor: "#4b2e9a",
+    walkerTrim: "#1a1a4a",
+    walkerStripe: "#ffd400",
     accessory: "nightcap",
-    accentColor: "#ffd400",
+    accentColor: "#FFD24A", // gold tassel
   },
 ];
 

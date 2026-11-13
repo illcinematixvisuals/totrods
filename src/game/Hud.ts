@@ -23,8 +23,7 @@ export function byId<T extends HTMLElement = HTMLElement>(id: string): T {
 
 /** A CSS portrait: face circle in the skin tone, hair, eyes, smile, accessory. */
 export function portraitHTML(who: RosterEntry, size = 64): string {
-  const sleepy = who.accessory === "nightcap" ? " sleepy" : "";
-  return `<div class="portrait hair-${who.hairStyle} acc-${who.accessory}${sleepy}" style="--skin:${who.skinTone};--hair:${who.hairColor};--accent:${who.accentColor};--size:${size}px">
+  return `<div class="portrait hair-${who.hairStyle} acc-${who.accessory}" style="--skin:${who.skinTone};--hair:${who.hairColor};--accent:${who.accentColor};--size:${size}px">
     <div class="p-puff l"></div><div class="p-puff r"></div>
     <div class="p-head"><div class="p-hair"></div><i class="p-eye l"></i><i class="p-eye r"></i><i class="p-cheek l"></i><i class="p-cheek r"></i><i class="p-smile"></i></div>
     <div class="p-acc"></div>
