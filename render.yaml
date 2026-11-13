@@ -1,0 +1,14 @@
+# TotRods — one Node web service serves the game and the WebSocket server.
+# Render also accepts the same settings via the Dashboard / MCP (create_web_service).
+services:
+  - type: web
+    name: totrods
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Phones: no pinch/double-tap zoom, draw under the notch, full-screen when added to the home screen. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#13235b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2246%22 fill=%22%231f4fff%22/%3E%3Ctext x=%2250%22 y=%2266%22 font-size=%2248%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22sans-serif%22 font-weight=%22bold%22%3ETR%3C/text%3E%3C/svg%3E" />
+    <title>TotRods</title>
+  </head>
+  <body>
+    <!-- Babylon.js draws every 3D frame into this canvas. -->
+    <canvas id="renderCanvas"></canvas>
+
+    <!-- Per-player HUDs are cloned from this template into #huds by Hud.ts. -->
+    <div id="huds"></div>
+    <template id="hudTemplate">
+      <div class="hud hidden">
+        <div class="fx-tint"></div>
+        <div class="panel who-panel">
+          <div class="portrait-slot" data-hud="portrait"></div>
+          <div>
+            <div class="who-tag" data-hud="tag">P1</div>
+            <div class="who-name" data-hud="name">Name</div>
+            <div class="lap-line">LAP <b data-hud="lapNum">1</b>/<span data-hud="lapTotal">3</span> <span class="place-chip hidden" data-hud="place">—</span></div>
+          </div>
+        </div>
+        <div class="panel time-panel">
+          <div class="row"><span class="label">TIME</span><span data-hud="curTime">0:00.000</span></div>
+          <div class="row"><span class="label">LAST</span><span data-hud="lastTime">--:--.---</span></div>
+          <div class="row"><span class="label">BEST</span><span data-hud="bestTime">--:--.---</span></div>
+        </div>
+        <div class="speedo">
+          <svg viewBox="0 0 200 120" class="gauge">
+            <path class="gauge-bg" d="M 20 110 A 80 80 0 0 1 180 110" />
+            <path data-hud="gaugeFill" class="gauge-fill" d="M 20 110 A 80 80 0 0 1 180 110" />
+          </svg>
+          <div class="speed-readout"><span data-hud="speed" class="speed">0</span><span class="unit">MPH</span></div>
+          <div class="effect-track"><div class="effect-bar" data-hud="effectBar"></div></div>
+        </div>
+        <div data-hud="toast" class="toast"></div>
+      </div>
+    </template>
+
+    <div id="countdown" class="countdown hidden"></div>
+
+    <div id="titleScreen" class="screen title-screen">
+      <div class="card title-card">
+        <h1 class="logo"><span>T</span><span>o</span><span>t</span><span>R</span><span>o</span><span>d</span><span>s</span></h1>
+        <p class="tag">Toddlers. Walkers. Full speed around the house!</p>
+        <div class="modes">
+          <button id="mode1" class="mode-btn selected">1 PLAYER</button>
+          <button id="mode2" class="mode-btn">2 PLAYERS</button>
+          <button id="mode3" class="mode-btn">ONLINE</button>
+          <button id="mode4" class="mode-btn">TV PARTY</button>
+        </div>
+        <p class="touch-help">Tap <b>1 PLAYER</b>, then tap a toddler. Steer with ◀ ▶, <b>▲</b> go, <b>▼</b> brake, <b>SKID</b> to drift, <b>↺</b> reset.</p>
+        <table class="controls">
+          <tr><td>W / ↑</td><td>Go!</td></tr>
+          <tr><td>S / ↓</td><td>Brake / back up</td></tr>
+          <tr><td>A D / ← →</td><td>Steer</td></tr>
+          <tr><td>Space</td><td>Skid (drift)</td></tr>
+          <tr><td>R</td><td>Reset onto the track</td></tr>
+          <tr><td>M</td><td>Mute</td></tr>
+        </table>
+        <p class="small kbd-only">2 players: P1 = WASD + Space (R reset) · P2 = arrows + Right Shift (Right Ctrl reset)</p>
+        <p class="small">Grab milk &amp; snacks for a boost. Dodge the cribs (nap time!)</p>
+        <div class="hint kbd-only">↑ ↓ or 1 / 2 / 3 / 4 to choose · Enter to continue</div>
+      </div>
+    </div>
+
+    <div id="selectScreen" class="screen select-screen hidden">
+      <h2 class="select-title">Choose your toddler!</h2>
+      <div id="selectCards" class="cards"></div>
+      <div id="selectHint" class="hint select-hint"></div>
+    </div>
+
+    <div id="finishScreen" class="screen hidden">
+      <div class="card finish-card">
+        <div id="finishPortrait"></div>
+        <h2 id="finishTitle">Great driving!</h2>
+        <div id="resultList" class="results"></div>
+        <div class="finish-buttons">
+          <button id="restartBtn" class="btn">RACE AGAIN</button>
+          <button id="menuBtn" class="btn ghost">MENU</button>
+        </div>
+        <div id="finishHint" class="hint">Enter = race again · Esc = menu</div>
+      </div>
+    </div>
+
+    <!-- Online: create or join a room. -->
+    <div id="onlineScreen" class="screen title-screen hidden">
+      <div class="card title-card online-card">
+        <h2 class="card-title">Online rooms</h2>
+        <p class="tag">Race friends on other computers. One makes a room, the others join with its code.</p>
+        <label class="field">Your name <input id="onlineName" maxlength="14" autocomplete="off" spellcheck="false" /></label>
+        <button id="createRoomBtn" class="btn wide">CREATE ROOM</button>
+        <div class="or"><span>or join a friend</span></div>
+        <div class="join-row">
+          <input id="joinCode" class="code-input" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" />
+          <button id="joinRoomBtn" class="btn">JOIN</button>
+        </div>
+        <div id="onlineStatus" class="status"></div>
+        <button id="onlineBackBtn" class="btn ghost">BACK</button>
+        <p class="small">Server: <span id="serverUrlLabel"></span></p>
+      </div>
+    </div>
+
+    <!-- Online: the room lobby (players, toddler picks, ready, start). -->
+    <div id="lobbyScreen" class="screen title-screen hidden">
+      <div class="card title-card lobby-card">
+        <div class="room-code">ROOM <b id="lobbyCode">----</b></div>
+        <p class="small">Friends join with this code, or the link: <span id="lobbyLink" class="link"></span></p>
+        <div id="lobbyPlayers" class="lobby-players"></div>
+        <div class="lobby-sub">Pick your toddler</div>
+        <div id="lobbyCards" class="lobby-cards"></div>
+        <div id="lobbyStatus" class="status"></div>
+        <div class="finish-buttons">
+          <button id="readyBtn" class="btn">READY</button>
+          <button id="startBtn" class="btn start">START RACE</button>
+          <button id="leaveBtn" class="btn ghost">LEAVE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Online: shown while the connection is being restored. -->
+    <div id="netBanner" class="net-banner hidden"></div>
+
+
+    <!-- TV Party: the big 10-foot lobby on the TV (room code + QR + players). -->
+    <div id="tvLobbyScreen" class="screen tv-lobby hidden">
+      <div class="tv-lobby-inner">
+        <h1 class="logo tv-logo"><span>T</span><span>o</span><span>t</span><span>R</span><span>o</span><span>d</span><span>s</span></h1>
+        <p class="tv-kicker">TV PARTY — scan to jump in!</p>
+        <div class="tv-join-row">
+          <div class="tv-code-block">
+            <div class="tv-code-label">ROOM CODE</div>
+            <div id="tvRoomCode" class="tv-code">----</div>
+            <div class="tv-url-label">or open this link on your phone</div>
+            <div id="tvJoinUrl" class="tv-url"></div>
+          </div>
+          <div class="tv-qr-wrap">
+            <canvas id="tvQr" width="360" height="360" aria-label="QR code to join"></canvas>
+          </div>
+        </div>
+        <div id="tvPlayerList" class="tv-players"></div>
+        <div id="tvLobbyStatus" class="tv-status">Waiting for players…</div>
+        <div class="tv-lobby-buttons">
+          <button id="tvStartBtn" class="btn start tv-start-btn">START RACE</button>
+          <button id="tvLobbyBackBtn" class="btn ghost">BACK</button>
+        </div>
+        <p class="tv-hint">Enter = start · Esc = back · M = mute · First phone can also press Start</p>
+      </div>
+    </div>
+
+    <!-- TV Party: results podium. -->
+    <div id="tvResultsScreen" class="screen hidden">
+      <div class="card tv-results-card">
+        <div id="tvResultsPortrait"></div>
+        <h2 id="tvResultsTitle">Great driving!</h2>
+        <div id="tvResultsList" class="tv-results-list"></div>
+        <div class="finish-buttons">
+          <button id="tvAgainBtn" class="btn start">RACE AGAIN</button>
+          <button id="tvNewBtn" class="btn ghost">NEW GAME</button>
+        </div>
+        <div class="hint">Enter = race again · Esc = new game</div>
+      </div>
+    </div>
+
+    <!-- Phone: join a TV Party (name + toddler pick + ready). -->
+    <div id="phoneJoinScreen" class="screen phone-join hidden">
+      <div class="phone-join-card">
+        <h1 class="phone-title">TotRods</h1>
+        <p class="phone-sub">You're on the controller. The race is on the TV!</p>
+        <label class="field">Your name <input id="phoneName" maxlength="14" autocomplete="off" spellcheck="false" placeholder="Player 1" /></label>
+        <div class="phone-subtle">Pick your toddler</div>
+        <div id="phoneCards" class="phone-cards"></div>
+        <div id="phoneJoinStatus" class="status"></div>
+        <button id="phoneReadyBtn" class="btn wide">READY</button>
+        <button id="phoneHostStartBtn" class="btn start wide hidden">START RACE</button>
+      </div>
+    </div>
+
+    <!-- Phone: full-screen landscape controller. -->
+    <div id="phonePadScreen" class="phone-pad hidden">
+      <div class="pad-top">
+        <div class="pad-who">
+          <div id="padPortrait" class="pad-portrait"></div>
+          <div>
+            <div id="padName" class="pad-name">Player</div>
+            <div id="padCharacter" class="pad-char">—</div>
+          </div>
+        </div>
+        <div class="pad-stats">
+          <div>LAP <b id="padLap">1</b>/3</div>
+          <div id="padPlace" class="pad-place">—</div>
+        </div>
+        <div id="padEffect" class="pad-effect"></div>
+      </div>
+      <div id="padCountdown" class="pad-countdown hidden"></div>
+      <div id="padBanner" class="pad-banner hidden"></div>
+      <div class="pad-controls">
+        <div class="pad-left">
+          <button type="button" id="padTilt" class="pad-tilt">TILT STEER: OFF</button>
+          <div class="pad-steer">
+            <button type="button" data-key="left" class="pbtn steer">◀</button>
+            <button type="button" data-key="right" class="pbtn steer">▶</button>
+          </div>
+        </div>
+        <div class="pad-right">
+          <button type="button" data-key="reset" class="pbtn tiny">↺ RESET</button>
+          <button type="button" data-key="hand" class="pbtn mid">DRIFT</button>
+          <div class="pad-pedals">
+            <button type="button" data-key="brake" class="pbtn brake">▼ BRAKE</button>
+            <button type="button" data-key="gas" class="pbtn gas">▲ GAS</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phones held upright: a gentle hint (the game still works in portrait). -->
+    <div id="rotateHint" class="rotate-hint"><span>↻ Turn your phone sideways for the best view</span><button id="rotateHintClose" aria-label="Hide">×</button></div>
+
+    <!-- On-screen buttons, only shown on touch devices (single player). -->
+    <div id="touch" class="touch hidden">
+      <div class="touch-left">
+        <button data-key="reset" class="tbtn tiny" aria-label="Reset onto the track">↺</button>
+        <button data-key="left" class="tbtn" aria-label="Steer left">◀</button>
+        <button data-key="right" class="tbtn" aria-label="Steer right">▶</button>
+      </div>
+      <div class="touch-right">
+        <button data-key="hand" class="tbtn small">SKID</button>
+        <button data-key="brake" class="tbtn">▼</button>
+        <button data-key="gas" class="tbtn gas">▲</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

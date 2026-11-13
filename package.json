@@ -1,0 +1,35 @@
+{
+  "name": "totrods",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "server": "tsx watch server/src/index.ts",
+    "dev:all": "concurrently -n client,server -c blue,green \"npm:dev\" \"npm:server\"",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "tsc --noEmit && vite build",
+    "build:server": "tsc -p server/tsconfig.json",
+    "start": "node server/dist/server/src/index.js",
+    "preview": "vite preview --port 8080 --host",
+    "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^7.54.3",
+    "@fontsource/fredoka": "^5.3.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/qrcode": "^1.5.6",
+    "@types/ws": "^8.18.2",
+    "concurrently": "^9.2.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
