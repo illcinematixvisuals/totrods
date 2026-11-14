@@ -79,3 +79,35 @@ code had to change):
   road bumps), a kid-friendly drift with three mini-turbo levels, rocket start,
   cartoon collisions (squash, shake, full spin on big hits, "ouch" face),
   visual-only jumps (Jumps.ts), celebrations (arms up, laughing, bouncing).
+
+### Stage 2 — environments and lighting
+
+- **Backyard playground** (House.ts `buildBackyard`): two new doors in the living
+  room's north wall lead out to a fenced garden — painted grass with daisies,
+  white picket fence, sandbox with bucket/spade/sand castle, a swing set whose
+  swings really swing, a slide, a paddling pool with scrolling ripples and a
+  bobbing rubber duck, trees, flower beds, the beach ball, a sweeping sprinkler
+  (particles) and fluttering butterflies. The lap now goes living room →
+  backyard → back inside → kitchen → nursery → hallway (Track.ts `CONTROL_POINTS`).
+  The server has no track data, so online/TV play is unaffected.
+- **Track surface** (Track.ts `buildRoad`): a soft grey "car-play-rug road" with
+  white edge lines under the racing line, red/white kerbs on both sides, the
+  yellow tape centre line and chevrons on top. Three ribbons = three draw calls.
+- **Pillow ramps** (Track.ts `buildRamps` + Jumps.ts): three striped wedges
+  (backyard, hallway, nursery). Rolling over one at speed does a visual hop.
+- **More toys and furniture**: alphabet blocks that spell TOT/ROD/TOTRODS (one
+  texture atlas + `faceUV`, all merged into one mesh), heaps of giant pillows,
+  a stacking-ring toy, a floor lamp with a glowing shade, giant cereal box, milk
+  carton and toaster on the kitchen counter.
+- **Lighting and reflections**: glossy wood and tile floors use a
+  `ReflectionProbe` per room rendered ONCE (refresh rate RENDER_ONCE) with a
+  Fresnel falloff, so the floors shine at grazing angles and cost nothing per
+  frame. The sun's shadow box was widened and re-centred to cover the yard.
+- **Sky**: an inside-out sphere coloured per vertex (deep blue overhead → pale
+  horizon) with nine drifting puffy clouds.
+- **Animated scenery** (`House.update(dt)`, ticked by Game.ts): a looping cartoon
+  on the TV (repainted ~8×/s), spinning baby mobile over the race-car bed,
+  swings, duck, pool ripples, sprinkler, butterflies, clouds.
+- **Quality.ts**: picks a tier (`high` desktop / `medium` phones / `low` old
+  devices, or `?quality=low|medium|high`). Low skips floor reflections and the
+  sprinkler, and has fewer butterflies.

@@ -26,6 +26,9 @@ async function open(w, h, query = "", mobile = false) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(`[${w}x${h} pageerror] ${e.message}`));
   page.on("console", (m) => m.type() === "error" && errors.push(`[${w}x${h} console] ${m.text()}`));
+  // Q=high pins the quality tier (otherwise slow software rendering would make
+  // the adaptive-quality watcher switch effects off mid-shot).
+  if (process.env.Q) query += (query.includes("?") ? "&" : "?") + `quality=${process.env.Q}`;
   await page.goto(`${BASE}/${query}`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForFunction(() => window.__totrods?.game, null, { timeout: 60000 });
   await page.waitForTimeout(1500);
@@ -77,6 +80,24 @@ if (on("faces")) {
   await page.context().close();
 }
 
+if (on("tour")) {
+  // Stage 2 environments: drop the racer at points along the lap (facing along the
+  // racing line) and let the chase camera settle. Fractions are of one lap.
+  const page = await open(1280, 720);
+  await startSolo(page, 0);
+  await page.waitForFunction(() => window.__totrods.info().state === "racing", null, { timeout: 30000 });
+  for (const [f, tag] of [[0.03, "living"], [0.1, "yard-in"], [0.17, "yard-swings"], [0.24, "yard-back"], [0.4, "kitchen"], [0.6, "nursery"], [0.82, "hallway"]]) {
+    await page.evaluate((frac) => {
+      const g = window.__totrods.game, t = g.track;
+      const pose = t.poseAt(Math.round(t.sampleCount * frac));
+      g.debugPlace(0, pose.position.x, pose.position.z, pose.heading);
+    }, f);
+    await page.waitForTimeout(1800);
+    await shot(page, `env-${tag}`);
+  }
+  await page.context().close();
+}
+
 if (on("countdown")) {
   const page = await open(1280, 720);
   await startSolo(page, 2);
@@ -88,7 +109,7 @@ if (on("countdown")) {
 if (on("race")) {
   const page = await open(1280, 720);
   await startSolo(page, 0);
-  await page.waitForFunction(() => window.__totrods.info().state === "racing", null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__totrods.info().state === "racing", null, { timeout: 60000 });
   await page.evaluate(() => (window.__totrods.game.players[0].autopilot = "drift"));
   await page.waitForFunction(() => window.__totrods.game.players[0].walker.driftLevel >= 1, null, { timeout: 120000 });
   await page.waitForTimeout(400);
@@ -103,7 +124,7 @@ if (on("race")) {
 if (on("split")) {
   const page = await open(1280, 720);
   await startSolo(page, 0, 2);
-  await page.waitForFunction(() => window.__totrods.info().state === "racing", null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__totrods.info().state === "racing", null, { timeout: 60000 });
   await page.evaluate(() => window.__totrods.game.players.forEach((p, i) => (p.autopilot = i ? "drive" : "drift")));
   await page.waitForTimeout(6000);
   await shot(page, "split-screen");
@@ -113,7 +134,7 @@ if (on("split")) {
 if (on("results")) {
   const page = await open(1280, 720);
   await startSolo(page, 4);
-  await page.waitForFunction(() => window.__totrods.info().state === "racing", null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__totrods.info().state === "racing", null, { timeout: 60000 });
   // Jump to the last lap, all checkpoints done, just before the line, then let autopilot cross it.
   await page.evaluate(() => {
     const g = window.__totrods.game;

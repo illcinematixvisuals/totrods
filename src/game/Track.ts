@@ -25,6 +25,7 @@ import {
 } from "@babylonjs/core";
 import type { CollisionWorld } from "./Collisions";
 import { makeMat } from "./Materials";
+import { JUMP_PADS } from "./Jumps";
 
 export interface TrackQuery {
   index: number; // nearest centre-line sample (0 .. sampleCount-1)
@@ -43,9 +44,12 @@ export interface TrackPose {
  * through them. `as const` makes this a read-only tuple array.
  */
 const CONTROL_POINTS = [
-  // Living room (start gate first)
-  [-22, 9], [-24, 18], [-32, 28], [-24, 36], [-12, 34], [-7, 20],
-  // → door → Kitchen, around the table
+  // Living room (start gate first), then out of the north door…
+  [-22, 9], [-26, 18], [-33, 28], [-36, 37], [-36, 44], [-36, 50],
+  // …around the BACKYARD playground (sandbox, swings, slide)…
+  [-41, 60], [-38, 74], [-26, 80], [-12, 79], [-2, 72], [-1, 60], [-6, 51],
+  // …and back in through the second north door, then east → Kitchen.
+  [-8, 44], [-8, 37], [-8, 29], [-5, 22],
   [0, 20], [7, 20], [14, 32], [26, 36], [36, 28], [34, 14], [22, 7],
   // → door → Nursery, around the toy box
   [22, 0], [22, -7], [30, -14], [36, -26], [28, -36], [16, -34], [7, -20],
@@ -54,6 +58,20 @@ const CONTROL_POINTS = [
   // → door → back to the living room
   [-22, 0],
 ] as const;
+
+/**
+ * Pillow-ramp jumps: a rough (x, z) spot, snapped to the nearest point of the
+ * racing line when the track is built, plus a hop power. See Jumps.ts — jumps
+ * are visual only, so they can never change the race result.
+ */
+const RAMP_SPOTS: ReadonlyArray<readonly [number, number, number]> = [
+  [-19, 80, 1.1], // backyard back straight
+  [-25, -28, 0.9], // hallway straight
+  [33, -20, 0.8], // nursery
+];
+
+/** Half-width of the play-rug road (the kerbs sit just outside it). */
+const ROAD_HALF = 3.9;
 
 /** How far either side of the last known position the lookup searches. */
 const SEARCH_WINDOW = 40;
@@ -65,10 +83,13 @@ export class Track {
   readonly length: number;
 
   constructor(private readonly scene: Scene, shadows: ShadowGenerator, collisions: CollisionWorld) {
-    this.length = this.buildCenterLine(700);
+    // More samples than before because the backyard made the lap longer; ~0.7 m apart.
+    this.length = this.buildCenterLine(800);
+    this.buildRoad();
     this.buildTape();
     this.buildArrows();
     this.buildStartGate(shadows, collisions);
+    this.buildRamps(shadows);
   }
 
   get sampleCount(): number {
@@ -177,6 +198,94 @@ export class Track {
     mesh.receiveShadows = true;
     mesh.isPickable = false;
     return mesh;
+  }
+
+  /**
+   * The road: a soft grey "play-rug road" under the racing line plus red/white
+   * kerbs on both edges, like the car-play rugs kids drive toy cars on. Each
+   * part is ONE textured ribbon for the whole lap (3 draw calls in total).
+   */
+  private buildRoad(): void {
+    // Road surface: soft slate with speckles and white edge lines.
+    const roadTex = new DynamicTexture("roadTex", { width: 128, height: 256 }, this.scene, true);
+    const r = roadTex.getContext() as CanvasRenderingContext2D;
+    r.fillStyle = "#6c7486";
+    r.fillRect(0, 0, 128, 256);
+    for (let k = 0; k < 1400; k++) {
+      r.fillStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)";
+      r.fillRect(Math.random() * 128, Math.random() * 256, 2, 2);
+    }
+    r.fillStyle = "rgba(255,255,255,0.75)";
+    r.fillRect(6, 0, 4, 256);
+    r.fillRect(118, 0, 4, 256);
+    roadTex.update();
+    roadTex.wrapV = Texture.WRAP_ADDRESSMODE;
+    roadTex.anisotropicFilteringLevel = 8; // keeps the far road crisp at grazing angles
+    const roadMat = new StandardMaterial("roadMat", this.scene);
+    roadMat.diffuseTexture = roadTex;
+    roadMat.specularColor = new Color3(0.05, 0.05, 0.06);
+    roadMat.emissiveColor = new Color3(0.08, 0.08, 0.1);
+    this.ribbon("road", -ROAD_HALF, ROAD_HALF, 0.022, 8).material = roadMat;
+
+    // Kerbs: classic red/white blocks.
+    const kerbTex = new DynamicTexture("kerbTex", { width: 16, height: 64 }, this.scene, true);
+    const k = kerbTex.getContext() as CanvasRenderingContext2D;
+    k.fillStyle = "#e3191f";
+    k.fillRect(0, 0, 16, 32);
+    k.fillStyle = "#ffffff";
+    k.fillRect(0, 32, 16, 32);
+    kerbTex.update();
+    kerbTex.wrapV = Texture.WRAP_ADDRESSMODE;
+    const kerbMat = new StandardMaterial("kerbMat", this.scene);
+    kerbMat.diffuseTexture = kerbTex;
+    kerbMat.specularColor = new Color3(0.2, 0.2, 0.2);
+    kerbMat.emissiveColor = new Color3(0.18, 0.18, 0.18);
+    this.ribbon("kerbL", -ROAD_HALF - 0.55, -ROAD_HALF, 0.028, 2.4).material = kerbMat;
+    this.ribbon("kerbR", ROAD_HALF, ROAD_HALF + 0.55, 0.028, 2.4).material = kerbMat;
+  }
+
+  /**
+   * Pillow ramps: a striped wedge on the floor + a pad in JUMP_PADS. Walker.ts
+   * sees the pad and does the (purely visual) hop.
+   */
+  private buildRamps(shadows: ShadowGenerator): void {
+    JUMP_PADS.length = 0; // a rebuilt Track must not double the list
+    const tex = new DynamicTexture("rampTex", { width: 64, height: 64 }, this.scene, true);
+    const c = tex.getContext() as CanvasRenderingContext2D;
+    for (let i = 0; i < 4; i++) {
+      c.fillStyle = i % 2 ? "#ffd400" : "#1f4fff";
+      c.fillRect(0, i * 16, 64, 16);
+    }
+    tex.update();
+    const mat = new StandardMaterial("rampMat", this.scene);
+    mat.diffuseTexture = tex;
+    mat.specularColor = new Color3(0.15, 0.15, 0.15);
+    mat.emissiveColor = new Color3(0.15, 0.15, 0.15);
+    const L = 3.2; // length along the road
+    const H = 0.5; // height of the lip
+    const W = 6.4; // width across the road
+    for (const [x, z, power] of RAMP_SPOTS) {
+      const { index } = this.query(new Vector3(x, 0, z));
+      const { position, heading } = this.poseAt(index);
+      // Start with a box, then pull its top-back edge down to the floor: a wedge.
+      const wedge = MeshBuilder.CreateBox("ramp", { width: W, height: H, depth: L, updatable: true }, this.scene);
+      const pos = wedge.getVerticesData("position")!;
+      for (let i = 0; i < pos.length; i += 3) {
+        if (pos[i + 1] > 0 && pos[i + 2] < 0) pos[i + 1] = -H / 2;
+      }
+      wedge.updateVerticesData("position", pos);
+      wedge.createNormals(false);
+      wedge.material = mat;
+      wedge.position.set(position.x, H / 2, position.z);
+      wedge.rotation.y = heading;
+      wedge.receiveShadows = true;
+      wedge.isPickable = false;
+      wedge.freezeWorldMatrix();
+      shadows.addShadowCaster(wedge);
+      // The pad sits near the top lip, so you take off from the highest point.
+      const lip = position.add(this.tangents[index].scale(L * 0.25));
+      JUMP_PADS.push({ x: lip.x, z: lip.z, radius: 2.6, power });
+    }
   }
 
   /** Dashed "painter's tape" racing line down the middle. */

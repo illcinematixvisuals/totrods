@@ -70,6 +70,7 @@ export class Game {
   readonly pickups: Pickups;
   // Shared with OnlineSession (it builds its own players in the same world).
   readonly shadows: ShadowGenerator;
+  readonly house: House;
   readonly showcase: Showcase;
   readonly screens: Screens;
   readonly sound = new Sound();
@@ -108,14 +109,15 @@ export class Game {
     const sun = new DirectionalLight("sun", new Vector3(-0.5, -1, 0.4).normalize(), scene);
     sun.intensity = 1.25;
     sun.diffuse = new Color3(1, 0.9, 0.75);
-    sun.position = sun.direction.scale(-120);
+    // Aim the shadow box at the middle of house + backyard (x≈-6, z≈20).
+    sun.position = new Vector3(-6, 0, 20).add(sun.direction.scale(-120));
     // The house is compact, so ONE fixed shadow box covers all of it — every
     // player gets shadows in split-screen, wherever they are.
     sun.autoUpdateExtends = false;
-    sun.orthoLeft = -60;
-    sun.orthoRight = 60;
-    sun.orthoTop = 60;
-    sun.orthoBottom = -60;
+    sun.orthoLeft = -75;
+    sun.orthoRight = 75;
+    sun.orthoTop = 75;
+    sun.orthoBottom = -75;
     sun.shadowMinZ = 1;
     sun.shadowMaxZ = 260;
     // Phones: a 1024 shadow map is 4× cheaper than 2048 and looks fine on a small screen.
@@ -125,7 +127,7 @@ export class Game {
     this.shadows.normalBias = 0.02;
     this.shadows.darkness = 0.35; // soft indoor shadows
 
-    new House(scene, this.shadows, this.collisions);
+    this.house = new House(scene, this.shadows, this.collisions);
     this.track = new Track(scene, this.shadows, this.collisions);
     this.pickups = new Pickups(scene, this.track);
     this.showcase = new Showcase(scene, this.shadows);
@@ -148,6 +150,7 @@ export class Game {
   // ---------------------------------------------------------------------------
 
   update(dt: number): void {
+    this.house.update(dt); // animated scenery (TV, swings, mobile, butterflies, clouds…)
     if (this.state === "online") {
       this.online.update(dt);
       return;
