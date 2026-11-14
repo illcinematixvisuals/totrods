@@ -21,8 +21,10 @@ import {
   Color4,
   DirectionalLight,
   Engine,
+  GlowLayer,
   HemisphericLight,
   ImageProcessingConfiguration,
+  Mesh,
   Scene,
   ShadowGenerator,
   Vector3,
@@ -35,6 +37,7 @@ import { TvSession } from "../tv/TvSession";
 import { Screens, type ScreenRect, type SelectView, type TitleChoice } from "./Hud";
 import { Keyboard, P1_KEYS, P2_KEYS, SOLO_KEYS, type KeyBindings } from "./Input";
 import { Pickups, PICKUP_TUNING } from "./Pickups";
+import { quality, setGlowSink } from "./Quality";
 import { Player, isTouchDevice, type PlayerConfig } from "./Player";
 import { ROSTER } from "./Roster";
 import { Showcase } from "./Showcase";
@@ -127,6 +130,7 @@ export class Game {
     this.shadows.normalBias = 0.02;
     this.shadows.darkness = 0.35; // soft indoor shadows
 
+    this.setUpGlow();
     this.house = new House(scene, this.shadows, this.collisions);
     this.track = new Track(scene, this.shadows, this.collisions);
     this.pickups = new Pickups(scene, this.track);
@@ -151,6 +155,7 @@ export class Game {
 
   update(dt: number): void {
     this.house.update(dt); // animated scenery (TV, swings, mobile, butterflies, clouds…)
+    this.watchFrameRate(dt);
     if (this.state === "online") {
       this.online.update(dt);
       return;
@@ -272,18 +277,82 @@ export class Game {
     return false;
   }
 
+  // ---------------------------------------------------------------------------
+  // Adaptive quality (see Quality.ts)
+  // ---------------------------------------------------------------------------
+
+  private glow: GlowLayer | null = null;
+  /** Extra resolution scaling chosen by the frame-rate watcher (1 = full res). */
+  private qualityScale = 1;
+  private viewportScale = 1;
+  private fpsTime = 0;
+  private fpsFrames = 0;
+  private slowStreak = 0;
+  private readonly qualityForced = new URLSearchParams(location.search).has("quality");
+
+  /**
+   * GlowLayer = a cheap bloom that only affects the meshes we register:
+   * lamp shades, kart head/tail-lights, boost trails. Off on "low".
+   */
+  private setUpGlow(): void {
+    if (quality.tier === "low") return;
+    const glow = new GlowLayer("glow", this.scene, {
+      mainTextureRatio: quality.tier === "high" ? 0.5 : 0.25, // blur buffer at ½ or ¼ resolution
+      blurKernelSize: quality.tier === "high" ? 32 : 16,
+    });
+    glow.intensity = 0.7;
+    this.glow = glow;
+    setGlowSink((m) => glow.addIncludedOnlyMesh(m as Mesh));
+  }
+
+  /**
+   * Watch the real frame rate. If it stays low for a few seconds, step the
+   * quality down (high → medium → low): drop the glow, lower resolution a bit,
+   * make shadows cheaper. It never steps back up during a session, so the
+   * picture doesn't "pump". A ?quality= URL pins the tier.
+   */
+  private watchFrameRate(dt: number): void {
+    if (this.qualityForced || document.hidden) return;
+    this.fpsTime += dt;
+    this.fpsFrames++;
+    if (this.fpsTime < 2) return;
+    const fps = this.fpsFrames / this.fpsTime;
+    this.fpsTime = 0;
+    this.fpsFrames = 0;
+    const racing = this.state === "racing" || this.state === "online" || this.state === "tvparty";
+    if (!racing) return;
+    const floor = quality.tier === "high" ? 45 : 28;
+    this.slowStreak = fps < floor ? this.slowStreak + 1 : 0;
+    if (this.slowStreak < 2 || quality.tier === "low") return;
+    this.slowStreak = 0;
+    quality.tier = quality.tier === "high" ? "medium" : "low";
+    if (quality.tier === "medium") {
+      if (this.glow) this.glow.intensity = 0.4;
+      this.qualityScale = 1.25;
+    } else {
+      this.glow?.dispose();
+      this.glow = null;
+      setGlowSink(null);
+      this.qualityScale = 1.5;
+      this.shadows.usePercentageCloserFiltering = false; // plain shadow lookups: cheaper
+      this.shadows.getShadowMap()!.refreshRate = 2;
+    }
+    this.engine.setHardwareScalingLevel(this.viewportScale * this.qualityScale);
+    console.info(`[TotRods] frame rate ${fps.toFixed(0)} fps → quality "${quality.tier}"`);
+  }
+
   /** Lower resolution and refresh shadows when many split-screen viewports are on screen. */
   applyViewportBudget(count: number): void {
     const engine = this.engine;
-    if (count >= 5) engine.setHardwareScalingLevel(1.7);
-    else if (count >= 3) engine.setHardwareScalingLevel(1.35);
-    else engine.setHardwareScalingLevel(1);
+    this.viewportScale = count >= 5 ? 1.7 : count >= 3 ? 1.35 : 1;
+    engine.setHardwareScalingLevel(this.viewportScale * this.qualityScale);
     const map = this.shadows.getShadowMap();
     if (map) map.refreshRate = count >= 5 ? 3 : count >= 3 ? 2 : 1;
   }
 
   resetViewportBudget(): void {
-    this.engine.setHardwareScalingLevel(1);
+    this.viewportScale = 1;
+    this.engine.setHardwareScalingLevel(this.qualityScale);
     const map = this.shadows.getShadowMap();
     if (map) map.refreshRate = 1;
   }

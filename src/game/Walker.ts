@@ -21,10 +21,12 @@
  * change colour as the drift charges: blue → orange → pink. Let go for a
  * mini-turbo — the longer the drift, the longer the turbo.
  */
-import { Mesh, MeshBuilder, Scalar, Scene, ShadowGenerator, StandardMaterial, TransformNode, Vector3 } from "@babylonjs/core";
+import { Color3, Mesh, MeshBuilder, Scalar, Scene, ShadowGenerator, StandardMaterial, TransformNode, Vector3 } from "@babylonjs/core";
 import type { Expression } from "./FaceTextures";
 import type { InputState } from "./Input";
 import { padAt } from "./Jumps";
+import { KartFx } from "./KartFx";
+import { registerGlow } from "./Quality";
 import { buildKart, WHEEL_RADIUS, type KartParts } from "./Kart";
 import type { RosterEntry } from "./Roster";
 import { buildToddler, type ToddlerParts } from "./Toddler";
@@ -138,7 +140,15 @@ export class Walker {
       if (mat && "diffuseTexture" in mat && mat.diffuseTexture) return;
       shadows.addShadowCaster(m, false);
     });
+    // Headlights + tail-lights glow (GlowLayer, see Game.ts); smoke/sparks/trails live in KartFx.
+    this.root.getChildMeshes().forEach((m) => m.name.startsWith("kartGlow") && registerGlow(m));
+    Walker.all.add(this);
+    this.kfx = new KartFx(scene, this.root, 0.8, -0.62, new Vector3(0, 0.34, -1.24), Color3.FromHexString(who.walkerColor));
   }
+  /** Every live walker (for the mini-map). Showcase walkers are disabled, so they are skipped. */
+  static readonly all = new Set<Walker>();
+  /** Particle effects + boost trails for this kart. */
+  private readonly kfx: KartFx;
 
   get position(): Vector3 {
     return this.root.position;
@@ -207,6 +217,8 @@ export class Walker {
   }
 
   dispose(): void {
+    Walker.all.delete(this);
+    this.kfx.dispose();
     // Don't pass `true` here: most materials (skin, paint, faces) are SHARED by
     // every walker (see ModelKit.ts / FaceTextures.ts) and must stay alive.
     this.root.dispose(false, false);
@@ -254,6 +266,7 @@ export class Walker {
         this.startTurbo(T.turboTime[level]);
         vf += 2 + level; // instant kick so it feels punchy
         this.onDriftBoost?.(level);
+        this.kfx.turbo(level);
       }
     }
     if (this.drifting) this.driftCharge += dt * (0.8 + 0.5 * Math.max(0, input.steer * this.driftDir));
@@ -349,6 +362,7 @@ export class Walker {
     this.shake = Math.min(1, strength / 8);
     if (strength > 9) this.spinOut = Math.PI * 2; // big hit: a full cartoon spin (visual only!)
     this.toddler.face.flash("ouch", 0.7);
+    this.kfx.impact(strength);
     this.onImpact?.(strength);
   }
 
@@ -389,6 +403,7 @@ export class Walker {
         this.bobVel -= 2.5 + this.airTime * 4; // land: compress the suspension
         this.squash = Math.max(this.squash, Math.min(0.8, this.airTime));
         this.toddler.face.flash("laugh", 0.8);
+        this.kfx.land(this.airTime);
         this.onLand?.(this.airTime);
       }
     }
@@ -474,5 +489,14 @@ export class Walker {
     else if (this.drifting) mood = "focus";
     toddler.face.setBase(mood);
     toddler.face.update(dt);
+
+    // --- Particles and trails ---
+    this.kfx.update(dt, {
+      drifting: this.drifting,
+      driftLevel: this.driftLevel,
+      boosting: this.turboLeft > 0 || this.fx === "boost",
+      speed: Math.abs(this.forwardSpeed),
+      airborne: this.airY > 0,
+    });
   }
 }
