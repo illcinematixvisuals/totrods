@@ -26,10 +26,13 @@ export interface KeyBindings {
   handbrake: readonly string[];
   reset: readonly string[];
   confirm: readonly string[]; // pick a character
+  /** Which game controller (Gamepad API index) also drives this player, if any. */
+  pad?: number;
 }
 
 /** Single player: both WASD and arrows work. */
 export const SOLO_KEYS: KeyBindings = {
+  pad: 0,
   label: "← → to choose · Enter to confirm",
   throttle: ["KeyW", "ArrowUp"],
   brake: ["KeyS", "ArrowDown"],
@@ -42,6 +45,7 @@ export const SOLO_KEYS: KeyBindings = {
 
 /** Split-screen player 1: WASD + Space, R to reset. */
 export const P1_KEYS: KeyBindings = {
+  pad: 0,
   label: "P1: A / D to choose · Space to confirm",
   throttle: ["KeyW"],
   brake: ["KeyS"],
@@ -54,6 +58,7 @@ export const P1_KEYS: KeyBindings = {
 
 /** Split-screen player 2: arrows + Right Shift, Right Ctrl to reset. */
 export const P2_KEYS: KeyBindings = {
+  pad: 1,
   label: "P2: ← → to choose · Right Shift / Enter to confirm",
   throttle: ["ArrowUp"],
   brake: ["ArrowDown"],
@@ -188,12 +193,41 @@ export class PlayerInput implements InputSource {
     const b = this.bindings;
     const left = k.any(b.left) || this.touch.left;
     const right = k.any(b.right) || this.touch.right;
-    return {
+    const state: InputState = {
       throttle: k.any(b.throttle) || this.touch.gas ? 1 : 0,
       brake: k.any(b.brake) || this.touch.brake ? 1 : 0,
       steer: (right ? 1 : 0) - (left ? 1 : 0),
       handbrake: k.any(b.handbrake) || this.touch.hand,
     };
+    this.mergeGamepad(state);
+    return state;
+  }
+
+  private padResetHeld = false;
+
+  /**
+   * Game controllers (Xbox / PlayStation / Switch Pro / TV remotes that act as
+   * pads) via the browser Gamepad API, in the "standard" button layout:
+   *   left stick / d-pad = steer (the stick is analogue),
+   *   RT or A = go, LT or B = brake, RB / LB / X = drift, Y = reset.
+   * Whichever is stronger — keys, touch or pad — wins, so they can be mixed.
+   */
+  private mergeGamepad(state: InputState): void {
+    if (this.bindings.pad === undefined || !navigator.getGamepads) return;
+    const pad = navigator.getGamepads()[this.bindings.pad];
+    if (!pad || !pad.connected) return;
+    const btn = (i: number): number => pad.buttons[i]?.value ?? 0;
+    const pressed = (i: number): boolean => pad.buttons[i]?.pressed ?? false;
+    const stick = Math.abs(pad.axes[0] ?? 0) > 0.2 ? pad.axes[0] : 0; // dead-zone so a worn stick doesn't drift
+    const dpad = (pressed(15) ? 1 : 0) - (pressed(14) ? 1 : 0);
+    const steer = dpad !== 0 ? dpad : stick;
+    if (Math.abs(steer) > Math.abs(state.steer)) state.steer = Math.max(-1, Math.min(1, steer));
+    state.throttle = Math.max(state.throttle, btn(7), pressed(0) ? 1 : 0);
+    state.brake = Math.max(state.brake, btn(6), pressed(1) ? 1 : 0);
+    state.handbrake = state.handbrake || pressed(4) || pressed(5) || pressed(2);
+    const reset = pressed(3);
+    if (reset && !this.padResetHeld) this.resetHandlers.forEach((fn) => fn());
+    this.padResetHeld = reset;
   }
 }
 
