@@ -69,13 +69,17 @@ async function boot(): Promise<void> {
     place: (player: number, x: number, z: number, heading?: number) => game.debugPlace(player, x, z, heading),
     scene: game.scene,
     game,
+    /** Draw calls in the last frame (performance check). */
+    drawCalls: () => (engine as unknown as { _drawCalls: { current: number } })._drawCalls?.current ?? null,
+    /** Freeze the simulation (rendering continues) — used to frame screenshots. */
+    paused: false,
   };
 
   engine.runRenderLoop(() => {
     // getDeltaTime() = ms since last frame. Convert to seconds and cap it, so a
     // slow frame (or a background tab) can't teleport anyone through a wall.
     const dt = Math.min(engine.getDeltaTime() / 1000, 1 / 20);
-    game.update(dt);
+    if (!(window as unknown as { __totrods: { paused: boolean } }).__totrods.paused) game.update(dt);
     game.scene.render();
   });
   window.addEventListener("resize", () => engine.resize());

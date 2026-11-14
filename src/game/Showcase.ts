@@ -42,7 +42,8 @@ export class Showcase {
     this.time += dt;
     this.walkers.forEach((w, i) => {
       const excited = this.highlighted.includes(i);
-      w.root.position.y = excited ? Math.abs(Math.sin(this.time * 7 + i)) * 0.3 : 0;
+      w.root.position.y = excited ? Math.abs(Math.sin(this.time * 7 + i)) * 0.2 : 0;
+      w.celebrate = excited; // arms up, laughing: "pick me!"
       w.lookAround(excited ? Math.sin(this.time * 3) * 0.5 : Math.sin(this.time * 0.8 + i * 2) * 0.25);
       w.animate(dt, excited ? 0.5 : 0.1);
     });

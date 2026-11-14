@@ -4,10 +4,13 @@
  * Needs: a running server (npm start) and playwright-core (see /tmp/e2e-pw).
  */
 import { createRequire } from "module";
+// Software-rendered headless Chrome (SwiftShader) can be 10x slower than a real GPU;
+// E2E_SLOW=3 stretches every phase wait so slow CI boxes do not fail on timing alone.
+const SLOW = Number(process.env.E2E_SLOW ?? 1);
 const require = createRequire("/tmp/e2e-pw/package.json");
 const { chromium, devices } = require("playwright-core");
 
-const OUT = "/workspace/driver-game/screenshots";
+const OUT = process.env.OUT ?? "/workspace/driver-game/screenshots";
 const BASE = (process.env.BASE ?? "http://localhost:2567").replace(/\/$/, "");
 const errors = [];
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -55,7 +58,7 @@ async function pickReady(page, index) {
 
 const tvInfo = (page) => page.evaluate(() => window.__totrods.tv.info());
 const waitPhase = (page, phase, timeout = 30000) =>
-  page.waitForFunction((ph) => window.__totrods.tv.info().phase === ph, phase, { timeout });
+  page.waitForFunction((ph) => window.__totrods.tv.info().phase === ph, phase, { timeout: timeout * SLOW });
 
 async function driveFor(tv, phones, ms) {
   const t0 = Date.now();
@@ -192,7 +195,7 @@ const before = await tvInfo(tv);
 for (const p of phones) {
   await p.evaluate(() => window.__totrods.controller.hold({ steer: 0, throttle: 1, brake: 0, drift: false, reset: false }));
 }
-await tv.waitForTimeout(1200);
+await tv.waitForTimeout(1200 * SLOW);
 const after = await tvInfo(tv);
 const moved = after.players.filter((p, i) => {
   const b = before.players[i];

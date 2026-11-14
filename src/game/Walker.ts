@@ -1,19 +1,31 @@
 /**
- * Walker.ts — a toddler in a baby walker: the model plus zippy, slightly
- * wobbly arcade physics (no physics engine needed).
+ * Walker.ts — a toddler in a racing walker-kart: the model plus zippy,
+ * slightly wobbly arcade physics (no physics engine needed), a kid-friendly
+ * DRIFT with mini-turbo, cartoon collisions, visual jumps and lots of
+ * character animation.
  *
  * Node hierarchy (children move with their parents):
- *   root (moves + turns)
- *    ├─ casters (spin as you roll)
- *    └─ body (wobbles and bounces)  →  frame, tray, toys, toddler
+ *   root (logic position + heading; always on the floor, y = 0)
+ *    └─ lift (jumps: the whole kart hops up here)
+ *        ├─ wheels (spin; front ones steer)
+ *        └─ body (suspension: bobs, pitches, rolls; cartoon squash and spin)
+ *            ├─ shell, tray, dash, steering wheel
+ *            └─ toddler (leans, bounces, steers, cheers, pulls faces)
  *
  * Physics idea: keep a velocity vector and split it every frame into a
  * FORWARD part (along the walker's facing) and a SIDEWAYS part. Grip kills
- * the sideways part quickly; the handbrake lowers grip so you skid (drift).
+ * the sideways part quickly; drifting lowers grip so you slide.
+ *
+ * DRIFT (forgiving on purpose): hold the skid button while steering at speed.
+ * You keep turning toward the drift side (steer harder = tighter). Sparks
+ * change colour as the drift charges: blue → orange → pink. Let go for a
+ * mini-turbo — the longer the drift, the longer the turbo.
  */
-import { Mesh, MeshBuilder, Scalar, Scene, ShadowGenerator, TransformNode, Vector3 } from "@babylonjs/core";
+import { Mesh, MeshBuilder, Scalar, Scene, ShadowGenerator, StandardMaterial, TransformNode, Vector3 } from "@babylonjs/core";
+import type { Expression } from "./FaceTextures";
 import type { InputState } from "./Input";
-import { makeMat } from "./Materials";
+import { padAt } from "./Jumps";
+import { buildKart, WHEEL_RADIUS, type KartParts } from "./Kart";
 import type { RosterEntry } from "./Roster";
 import { buildToddler, type ToddlerParts } from "./Toddler";
 
@@ -30,8 +42,14 @@ export const WALKER_TUNING = {
   grip: 7.5, // how fast sideways sliding is cancelled (per second)
   gripHandbrake: 1.2,
   handbrakeYawBoost: 1.4,
-  casterRadius: 0.1,
   radius: 0.85, // collision circle
+  // Drift + mini-turbo
+  driftMinSpeed: 6, // must be going at least this fast to start a drift
+  driftGrip: 2.6, // sideways grip while drifting (lower = more slide)
+  driftCharge: [0.55, 1.3, 2.2], // seconds of drifting for turbo level 1 / 2 / 3
+  turboTime: [0, 0.55, 0.9, 1.3], // seconds of turbo per level
+  turboSpeed: 1.28, // top-speed multiplier while turbo is on
+  turboAccel: 2.2,
 } as const;
 
 /** Multipliers from pickups (1 = normal). */
@@ -41,12 +59,15 @@ export interface SpeedMods {
 }
 
 const UNITS_TO_MPH = 2.23694;
+const GRAVITY = 24; // visual jumps
+
+/** Pickup effect currently shown on this walker (drives expressions and particles). */
+export type WalkerFx = "boost" | "nap" | null;
 
 export class Walker {
   readonly root: TransformNode;
   readonly radius = WALKER_TUNING.radius;
-  private readonly body: TransformNode;
-  private readonly casters: Mesh[] = [];
+  private readonly kart: KartParts;
   private readonly toddler: ToddlerParts;
   /** Invisible marker at head height, used as a particle emitter. */
   readonly emitter: Mesh;
@@ -56,24 +77,66 @@ export class Walker {
   forwardSpeed = 0;
   slideSpeed = 0;
 
-  private casterSpin = 0;
+  // ---- Drift / turbo (read by effects, camera and HUD) ----
+  drifting = false;
+  driftDir = 0; // -1 left, +1 right
+  driftCharge = 0; // seconds
+  turboLeft = 0;
+  /** Called when a drift is released with a turbo (level 1..3). */
+  onDriftBoost: ((level: number) => void) | null = null;
+  /** Called on a bump (strength ≈ change in speed, units/s). */
+  onImpact: ((strength: number) => void) | null = null;
+  /** Called when landing from a jump (airtime in seconds). */
+  onLand: ((airtime: number) => void) | null = null;
+
+  // ---- Visual state set by Player / RemotePlayer / Showcase ----
+  fx: WalkerFx = null;
+  /** Arms up, laughing, bouncing (finish line, results, select screen). */
+  celebrate = false;
+
+  private wheelSpin = 0;
   private wobble = 0;
   private glance = 0;
   private glanceTarget = 0;
   private lastYawRate = 0;
+  private steerVis = 0;
+  private time = Math.random() * 10;
+  // suspension springs (pitch, roll, height)
+  private pitch = 0;
+  private pitchVel = 0;
+  private roll = 0;
+  private rollVel = 0;
+  private bob = 0;
+  private bobVel = 0;
+  private prevForward = 0;
+  // jumps
+  private airY = 0;
+  private airVy = 0;
+  private airTime = 0;
+  private padCooldown = 0;
+  // cartoon collisions
+  private readonly lastVel = Vector3.Zero();
+  private squash = 0;
+  private spinOut = 0; // remaining visual spin (radians)
+  private shake = 0;
+  private impactCooldown = 0;
+  private cheer = 0; // 0..1 blend toward the celebration pose
 
   constructor(scene: Scene, shadows: ShadowGenerator, readonly who: RosterEntry, id: string) {
     this.root = new TransformNode(`walker-${id}`, scene);
-    this.body = new TransformNode(`walkerBody-${id}`, scene);
-    this.body.parent = this.root;
-    this.buildFrame(scene, id);
-    this.toddler = buildToddler(scene, who, this.body);
+    this.kart = buildKart(scene, who, id, this.root);
+    this.toddler = buildToddler(scene, who, this.kart.body);
     this.emitter = MeshBuilder.CreateBox(`emitter-${id}`, { size: 0.01 }, scene);
     this.emitter.isVisible = false;
-    this.emitter.parent = this.root;
+    this.emitter.parent = this.kart.lift;
     this.emitter.position.y = 1.9;
+    // Every solid part casts a shadow. Painted decals (eyes, badges) don't:
+    // their transparent corners would cast square shadows.
     this.root.getChildMeshes().forEach((m) => {
-      if (m !== this.emitter) shadows.addShadowCaster(m);
+      if (m === this.emitter || !m.isVisible) return;
+      const mat = m.material as StandardMaterial | null;
+      if (mat && "diffuseTexture" in mat && mat.diffuseTexture) return;
+      shadows.addShadowCaster(m, false);
     });
   }
 
@@ -86,18 +149,56 @@ export class Walker {
   get forward(): Vector3 {
     return new Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
   }
+  /** Height of the jump right now (0 = on the floor). */
+  get air(): number {
+    return this.airY;
+  }
+  /** Current turbo level from the drift charge (0 = none yet). */
+  get driftLevel(): number {
+    const c = WALKER_TUNING.driftCharge;
+    return !this.drifting ? 0 : this.driftCharge >= c[2] ? 3 : this.driftCharge >= c[1] ? 2 : this.driftCharge >= c[0] ? 1 : 0;
+  }
+  /** Rear-wheel and exhaust emitter points for particle effects. */
+  get rearWheels(): Mesh[] {
+    return this.kart.rearWheels;
+  }
+  get exhausts(): Mesh[] {
+    return this.kart.exhausts;
+  }
+  /** Current expression on the toddler's face (handy for tests). */
+  get expression(): Expression {
+    return this.toddler.face.current;
+  }
 
   /** Make the toddler turn their head (radians, + = to their right). */
   lookAround(angle: number): void {
     this.glanceTarget = angle;
   }
 
+  /** Pull a face for a moment (e.g. "laugh" on a pickup). */
+  react(e: Expression, seconds = 1): void {
+    this.toddler.face.flash(e, seconds);
+  }
+
+  /** Start a short turbo (rocket start, drift release). */
+  startTurbo(seconds: number): void {
+    this.turboLeft = Math.max(this.turboLeft, seconds);
+  }
+
   placeAt(position: Vector3, heading: number): void {
     this.root.position.set(position.x, 0, position.z);
     this.heading = heading;
     this.velocity.setAll(0);
+    this.lastVel.setAll(0);
     this.forwardSpeed = 0;
+    this.prevForward = 0;
     this.slideSpeed = 0;
+    this.drifting = false;
+    this.driftCharge = 0;
+    this.turboLeft = 0;
+    this.airY = 0;
+    this.airVy = 0;
+    this.spinOut = 0;
     this.root.rotation.y = heading;
   }
 
@@ -106,7 +207,10 @@ export class Walker {
   }
 
   dispose(): void {
-    this.root.dispose(false, true); // also dispose this walker's materials
+    // Don't pass `true` here: most materials (skin, paint, faces) are SHARED by
+    // every walker (see ModelKit.ts / FaceTextures.ts) and must stay alive.
+    this.root.dispose(false, false);
+    this.kart.ownMaterials.forEach((m) => m.dispose(true, true)); // this kart's name board + badge
   }
 
   /**
@@ -115,20 +219,51 @@ export class Walker {
    */
   update(dt: number, input: InputState, mods: SpeedMods = { speed: 1, accel: 1 }): void {
     const T = WALKER_TUNING;
+    // 0) Did the collision step last frame change our velocity a lot? That was a bump!
+    this.detectImpact(Math.hypot(this.velocity.x - this.lastVel.x, this.velocity.z - this.lastVel.z));
+
     const fwd = this.forward;
     const right = new Vector3(fwd.z, 0, -fwd.x);
 
     // 1) Split velocity into forward and sideways parts (dot product = projection).
     let vf = Vector3.Dot(this.velocity, fwd);
     let vs = Vector3.Dot(this.velocity, right);
-    const maxSpeed = T.maxSpeed * mods.speed;
 
-    // 2) Push, brake, reverse.
+    // Turbo (drift release or rocket start) stacks on top of pickups.
+    let speedMul = mods.speed;
+    let accelMul = mods.accel;
+    if (this.turboLeft > 0) {
+      this.turboLeft -= dt;
+      speedMul *= T.turboSpeed;
+      accelMul *= T.turboAccel;
+    }
+    const maxSpeed = T.maxSpeed * speedMul;
+
+    // 2) Drift state machine.
+    const wantsDrift = input.handbrake && Math.abs(input.steer) > 0.25 && vf > T.driftMinSpeed;
+    if (!this.drifting && wantsDrift) {
+      this.drifting = true;
+      this.driftDir = Math.sign(input.steer);
+      this.driftCharge = 0;
+      this.bobVel += 1.2; // a little hop as the drift starts (classic kart feel)
+    } else if (this.drifting && (!input.handbrake || vf < T.driftMinSpeed * 0.6)) {
+      const level = this.driftLevel;
+      this.drifting = false;
+      this.driftCharge = 0;
+      if (level > 0 && input.handbrake === false) {
+        this.startTurbo(T.turboTime[level]);
+        vf += 2 + level; // instant kick so it feels punchy
+        this.onDriftBoost?.(level);
+      }
+    }
+    if (this.drifting) this.driftCharge += dt * (0.8 + 0.5 * Math.max(0, input.steer * this.driftDir));
+
+    // 3) Push, brake, reverse.
     if (input.throttle > 0) {
       if (vf < -0.3) vf += T.brakeDecel * dt;
       else {
         const ratio = Math.max(0, vf) / maxSpeed;
-        vf += T.accel * mods.accel * input.throttle * Math.max(0, 1 - ratio * ratio) * dt;
+        vf += T.accel * accelMul * input.throttle * Math.max(0, 1 - ratio * ratio) * dt;
       }
     }
     if (input.brake > 0) {
@@ -136,30 +271,42 @@ export class Walker {
       else vf = Math.max(-T.maxReverse, vf - T.accel * 0.5 * dt);
     }
 
-    // 3) Drag pulls speed toward zero (extra drag if over the limit, e.g. after a nap pickup).
+    // 4) Drag pulls speed toward zero (extra drag if over the limit, e.g. after a nap pickup).
     let drag = T.rollingDrag + T.airDrag * vf * vf;
     if (Math.abs(vf) > maxSpeed) drag += 20;
-    if (input.handbrake) drag += 5;
+    if (input.handbrake) drag += this.drifting ? 1.2 : 5; // drifting barely slows you: forgiving for little kids
     vf -= Math.sign(vf) * Math.min(Math.abs(vf), drag * dt);
     if (input.throttle === 0 && input.brake === 0 && Math.abs(vf) < 0.15) vf = 0;
 
-    // 4) Grip: exponentially shrink sideways sliding (frame-rate independent).
-    vs *= Math.exp(-(input.handbrake ? T.gripHandbrake : T.grip) * dt);
+    // 5) Grip: exponentially shrink sideways sliding (frame-rate independent).
+    const grip = this.drifting ? T.driftGrip : input.handbrake ? T.gripHandbrake : T.grip;
+    vs *= Math.exp(-grip * dt);
 
-    // 5) Turning. Casters let walkers turn even when slow; a bit less at top speed.
+    // 6) Turning. Casters let walkers turn even when slow; a bit less at top speed.
     const speed01 = Math.min(1, Math.abs(vf) / T.maxSpeed);
-    let yawRate = input.steer * Scalar.Lerp(T.turnRateSlow, T.turnRateFast, speed01);
-    if (vf < -0.3) yawRate = -yawRate; // reversing flips steering, like a car
-    if (input.handbrake) yawRate *= T.handbrakeYawBoost;
+    let yawRate: number;
+    if (this.drifting) {
+      // Always turning toward the drift side; steering adjusts how tight.
+      const k = 0.75 + 0.45 * Scalar.Clamp(input.steer * this.driftDir, -1, 1);
+      yawRate = this.driftDir * T.turnRateFast * 1.15 * k;
+    } else {
+      yawRate = input.steer * Scalar.Lerp(T.turnRateSlow, T.turnRateFast, speed01);
+      if (vf < -0.3) yawRate = -yawRate; // reversing flips steering, like a car
+      if (input.handbrake) yawRate *= T.handbrakeYawBoost;
+    }
     this.lastYawRate = Scalar.Lerp(this.lastYawRate, yawRate, 1 - Math.exp(-12 * dt));
 
-    // 6) Rebuild velocity in the OLD frame, then rotate. Part of it becomes
+    // 7) Rebuild velocity in the OLD frame, then rotate. Part of it becomes
     //    sideways next frame, and grip decides how much "skid" survives.
     this.velocity.copyFrom(fwd.scale(vf).addInPlace(right.scale(vs)));
     this.heading += this.lastYawRate * dt;
     this.root.position.addInPlace(this.velocity.scale(dt));
     this.forwardSpeed = vf;
     this.slideSpeed = vs;
+    this.lastVel.copyFrom(this.velocity);
+
+    const steerGoal = this.drifting ? this.driftDir * 0.6 + input.steer * 0.4 : input.steer;
+    this.steerVis = Scalar.Lerp(this.steerVis, steerGoal, 1 - Math.exp(-10 * dt));
     this.animate(dt, speed01, vs);
   }
 
@@ -173,9 +320,15 @@ export class Walker {
     this.velocity.set(vx, 0, vz); // so bumping into a remote walker feels right
     this.root.position.set(x, 0, z);
     this.heading = heading;
+    // A sudden big drop in speed = they bumped into something.
+    if (this.forwardSpeed - forwardSpeed > 5) this.detectImpact(this.forwardSpeed - forwardSpeed);
     this.forwardSpeed = forwardSpeed;
     this.slideSpeed = slide;
     this.lastYawRate = yawRate;
+    // Remote karts: show a drift whenever they're sliding hard at speed.
+    this.drifting = Math.abs(slide) > 2.5 && forwardSpeed > WALKER_TUNING.driftMinSpeed;
+    this.driftDir = Math.sign(yawRate) || 1;
+    this.steerVis = Scalar.Lerp(this.steerVis, Scalar.Clamp(yawRate / 2.4, -1, 1), 1 - Math.exp(-10 * dt));
     this.animate(dt, Math.min(1, Math.abs(forwardSpeed) / WALKER_TUNING.maxSpeed), slide);
   }
 
@@ -189,115 +342,137 @@ export class Walker {
     return this.glanceTarget;
   }
 
-  /** Purely visual: casters, wobble, bounce, head glance, cape flap. */
-  animate(dt: number, speed01: number, slide = 0): void {
-    this.root.rotation.y = this.heading;
-    this.casterSpin += (this.forwardSpeed / WALKER_TUNING.casterRadius) * dt;
-    for (const c of this.casters) c.rotation.x = this.casterSpin;
-
-    // Wobble: a sine wave whose speed and size grow with speed — toddler energy.
-    this.wobble += dt * (5 + speed01 * 9);
-    const lean = Scalar.Clamp(-this.lastYawRate * speed01 * 0.06 + slide * 0.01, -0.14, 0.14);
-    this.body.rotation.z = lean + Math.sin(this.wobble) * 0.035 * (0.3 + speed01);
-    this.body.rotation.x = Math.sin(this.wobble * 0.5 + 1) * 0.025 * speed01;
-    this.body.position.y = Math.abs(Math.sin(this.wobble)) * 0.06 * speed01;
-
-    const k = 1 - Math.exp(-6 * dt);
-    this.glance = Scalar.Lerp(this.glance, this.glanceTarget, k);
-    const head = this.toddler.headPivot;
-    head.rotation.y = this.glance;
-    head.rotation.z = Math.sin(this.wobble * 0.5) * 0.08 * (0.2 + speed01); // head bobble
-    if (this.toddler.capePivot) {
-      // Positive X rotation swings the bottom of the cape backwards (-Z): it flies out behind at speed.
-      const flap = 0.12 + speed01 * 1.0 + Math.sin(this.wobble * 1.7) * 0.04 * (0.3 + speed01);
-      this.toddler.capePivot.rotation.x = Scalar.Lerp(this.toddler.capePivot.rotation.x, flap, k);
-    }
+  private detectImpact(strength: number): void {
+    if (strength < 3.5 || this.impactCooldown > 0) return;
+    this.impactCooldown = 0.35;
+    this.squash = Math.min(1, strength / 10);
+    this.shake = Math.min(1, strength / 8);
+    if (strength > 9) this.spinOut = Math.PI * 2; // big hit: a full cartoon spin (visual only!)
+    this.toddler.face.flash("ouch", 0.7);
+    this.onImpact?.(strength);
   }
 
-  // ---------------------------------------------------------------------------
+  /** Purely visual: wheels, suspension, jumps, toddler animation and face. */
+  animate(dt: number, speed01: number, slide = 0): void {
+    this.time += dt;
+    this.impactCooldown = Math.max(0, this.impactCooldown - dt);
+    this.root.rotation.y = this.heading;
+    const kart = this.kart;
+    const toddler = this.toddler;
 
-  private buildFrame(scene: Scene, id: string): void {
-    const main = makeMat(scene, `walkerMain-${id}`, this.who.walkerColor, { specular: 0.4, emissive: 0.08 });
-    const trim = makeMat(scene, `walkerTrim-${id}`, this.who.walkerTrim, { specular: 0.4, emissive: 0.08 });
-    const rubber = makeMat(scene, `rubber-${id}`, "#2b2b30", { specular: 0.1 });
-    const seat = makeMat(scene, `seat-${id}`, "#fff3d6", { specular: 0.05 });
-    const toyColors = ["#ff3b3b", "#ffd21e", "#2fd65a", "#2f8bff"];
-    const toys = toyColors.map((c, i) => makeMat(scene, `toy${i}-${id}`, c, { specular: 0.6, emissive: 0.2 }));
+    // --- Wheels: roll + steer ---
+    this.wheelSpin += (this.forwardSpeed / WHEEL_RADIUS) * dt;
+    for (const w of kart.wheels) {
+      w.spin.rotation.x = this.wheelSpin;
+      if (w.steer) w.steer.rotation.y = this.steerVis * 0.45;
+    }
+    kart.steeringSpin.rotation.y = this.steerVis * 1.9;
 
-    const add = (m: Mesh, mat = main, parent: TransformNode = this.body): Mesh => {
-      m.material = mat;
-      m.parent = parent;
-      return m;
+    // --- Jumps (visual hop over pillow ramps) ---
+    this.padCooldown = Math.max(0, this.padCooldown - dt);
+    if (this.airY <= 0 && this.padCooldown <= 0 && Math.abs(this.forwardSpeed) > 4) {
+      const pad = padAt(this.root.position.x, this.root.position.z);
+      if (pad) {
+        this.airVy = (2.6 + Math.abs(this.forwardSpeed) * 0.22) * pad.power;
+        this.airY = 0.001;
+        this.airTime = 0;
+        this.padCooldown = 0.6;
+        toddler.face.flash("wow", 0.9);
+      }
+    }
+    if (this.airY > 0) {
+      this.airTime += dt;
+      this.airVy -= GRAVITY * dt;
+      this.airY += this.airVy * dt;
+      if (this.airY <= 0) {
+        this.airY = 0;
+        this.bobVel -= 2.5 + this.airTime * 4; // land: compress the suspension
+        this.squash = Math.max(this.squash, Math.min(0.8, this.airTime));
+        this.toddler.face.flash("laugh", 0.8);
+        this.onLand?.(this.airTime);
+      }
+    }
+    kart.lift.position.y = this.airY;
+    // Nose up on take-off, nose down when falling.
+    const airPitch = this.airY > 0 ? Scalar.Clamp(-this.airVy * 0.035, -0.3, 0.3) : 0;
+
+    // --- Suspension: damped springs for pitch, roll and height ---
+    const accel = dt > 0 ? (this.forwardSpeed - this.prevForward) / dt : 0;
+    this.prevForward = this.forwardSpeed;
+    const pitchTarget = Scalar.Clamp(-accel * 0.0055, -0.09, 0.09) + airPitch;
+    const rollTarget = Scalar.Clamp(this.lastYawRate * this.forwardSpeed * 0.0045 + slide * 0.006, -0.12, 0.12);
+    const spring = (x: number, v: number, target: number, k: number, c: number): [number, number] => {
+      const a = k * (target - x) - c * v;
+      v += a * dt;
+      return [x + v * dt, v];
     };
+    [this.pitch, this.pitchVel] = spring(this.pitch, this.pitchVel, pitchTarget, 140, 11);
+    [this.roll, this.rollVel] = spring(this.roll, this.rollVel, rollTarget, 140, 11);
+    // Little road bumps at speed keep the suspension alive.
+    if (this.airY <= 0 && speed01 > 0.2 && Math.random() < dt * 6 * speed01) this.bobVel += (Math.random() - 0.3) * 0.5 * speed01;
+    [this.bob, this.bobVel] = spring(this.bob, this.bobVel, 0, 160, 9);
 
-    // Round base + bumper ring.
-    const base = add(MeshBuilder.CreateCylinder("base", { diameterTop: 1.4, diameterBottom: 1.62, height: 0.2, tessellation: 24 }, scene));
-    base.position.y = 0.24;
-    const bumper = add(MeshBuilder.CreateTorus("bumper", { diameter: 1.56, thickness: 0.14, tessellation: 24 }, scene), trim);
-    bumper.position.y = 0.33;
+    // Toddler energy: a sine wobble whose speed and size grow with speed.
+    this.wobble += dt * (5 + speed01 * 9);
+    const wob = Math.sin(this.wobble) * 0.025 * (0.3 + speed01);
 
-    // Ring of caster wheels (on root, so they don't wobble with the body).
-    const casterProto = MeshBuilder.CreateCylinder("caster", { diameter: WALKER_TUNING.casterRadius * 2, height: 0.08, tessellation: 10 }, scene);
-    casterProto.rotation.z = Math.PI / 2;
-    casterProto.bakeCurrentTransformIntoVertices(); // axle now along X → rotation.x = spin
-    casterProto.material = rubber;
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
-      const c = i === 0 ? casterProto : (casterProto.clone(`caster${i}`) as Mesh);
-      c.parent = this.root;
-      c.position.set(Math.cos(a) * 0.62, WALKER_TUNING.casterRadius, Math.sin(a) * 0.62);
-      this.casters.push(c);
+    // Cartoon collision: squash, shake and (big hits) a full spin.
+    this.squash = Math.max(0, this.squash - dt * 2.6);
+    this.shake = Math.max(0, this.shake - dt * 3);
+    let spinVis = 0;
+    if (this.spinOut > 0) {
+      this.spinOut = Math.max(0, this.spinOut - dt * 11);
+      spinVis = this.spinOut;
+    }
+    const body = kart.body;
+    body.position.y = 0.02 + this.bob * 0.08 + Math.abs(Math.sin(this.wobble)) * 0.03 * speed01;
+    body.rotation.set(this.pitch, spinVis, this.roll + wob + Math.sin(this.time * 60) * 0.05 * this.shake);
+    const sq = Math.sin(Math.min(1, this.squash) * Math.PI) * 0.22;
+    body.scaling.set(1 + sq * 0.6, 1 - sq, 1 + sq * 0.6);
+
+    // --- Toddler: lean into turns, bounce, steer or cheer ---
+    const k = 1 - Math.exp(-6 * dt);
+    this.cheer = Scalar.Lerp(this.cheer, this.celebrate ? 1 : 0, 1 - Math.exp(-5 * dt));
+    const ub = toddler.upperBody;
+    const leanIn = Scalar.Clamp(-this.lastYawRate * speed01 * 0.09, -0.2, 0.2);
+    ub.rotation.z = Scalar.Lerp(ub.rotation.z, leanIn, k);
+    ub.rotation.x = Scalar.Lerp(ub.rotation.x, 0.06 * speed01 - this.cheer * 0.12 + (this.turboLeft > 0 || this.fx === "boost" ? -0.08 : 0), k);
+    const bounce = this.cheer * Math.abs(Math.sin(this.time * 9)) * 0.12;
+    ub.position.y = 0.86 + bounce + this.bob * 0.03;
+
+    // Hands follow the steering wheel rim (IK), or wave in the air when cheering.
+    const C = kart.steeringCenter;
+    const tilt = kart.steeringTilt;
+    const ang = this.steerVis * 1.9;
+    const r = 0.17;
+    const U = new Vector3(0, Math.cos(tilt), Math.sin(tilt)); // "up" across the wheel face
+    for (let i = 0; i < 2; i++) {
+      const side = i === 0 ? 1 : -1; // toddler's left (+X) then right (−X)
+      const onWheel = new Vector3(side * r * Math.cos(ang), 0, 0).addInPlace(U.scale(-side * r * Math.sin(ang))).addInPlace(C);
+      onWheel.y -= 0.86; // into upperBody space
+      const wave = Math.sin(this.time * 10 + i * 1.7) * 0.12;
+      const cheerHand = new Vector3(side * (0.45 + wave * 0.5), 0.95 + wave, 0.12);
+      toddler.arms[i].reach(Vector3.Lerp(onWheel, cheerHand, this.cheer));
     }
 
-    // Four posts up to the tray.
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      const post = add(MeshBuilder.CreateCylinder("post", { diameter: 0.08, height: 0.72, tessellation: 6 }, scene), trim);
-      post.position.set(Math.cos(a) * 0.56, 0.68, Math.sin(a) * 0.56);
+    // Head: glance, bobble, look up when cheering.
+    this.glance = Scalar.Lerp(this.glance, this.glanceTarget * (1 - this.cheer), k);
+    const head = toddler.headPivot;
+    head.rotation.y = this.glance;
+    head.rotation.z = Math.sin(this.wobble * 0.5) * 0.08 * (0.2 + speed01) + this.cheer * Math.sin(this.time * 5) * 0.15;
+    head.rotation.x = -this.cheer * 0.15 + (this.airY > 0 ? -0.1 : 0);
+    if (toddler.capePivot) {
+      // Positive X rotation swings the bottom of the cape backwards (-Z): it flies out behind at speed.
+      const flap = 0.12 + speed01 * 1.0 + Math.sin(this.wobble * 1.7) * 0.04 * (0.3 + speed01);
+      toddler.capePivot.rotation.x = Scalar.Lerp(toddler.capePivot.rotation.x, flap, k);
     }
 
-    // Tray ring, seat and the front play tray with toy buttons.
-    const tray = add(MeshBuilder.CreateTorus("tray", { diameter: 1.32, thickness: 0.2, tessellation: 28 }, scene));
-    tray.position.y = 1.04;
-    const seatDisc = add(MeshBuilder.CreateCylinder("seat", { diameter: 1.1, height: 0.04, tessellation: 20 }, scene), seat);
-    seatDisc.position.y = 0.98;
-    const play = add(MeshBuilder.CreateBox("playTray", { width: 0.95, height: 0.08, depth: 0.42 }, scene), trim);
-    play.position.set(0, 1.1, 0.62);
-    toys.forEach((mat, i) => {
-      const b = add(MeshBuilder.CreateCylinder("toyButton", { diameter: 0.12, height: 0.07, tessellation: 10 }, scene), mat);
-      b.position.set(-0.33 + i * 0.22, 1.17, 0.73);
-    });
-    // Optional racing stripes: two thin strips over the base and the play tray.
-    if (this.who.walkerStripe) {
-      const stripe = makeMat(scene, `stripe-${id}`, this.who.walkerStripe, { specular: 0.4, emissive: 0.15 });
-      for (const sx of [-0.13, 0.13]) {
-        for (const sz of [-1, 1]) {
-          const s = add(MeshBuilder.CreateBox("stripe", { width: 0.09, height: 0.02, depth: 0.42 }, scene), stripe);
-          s.position.set(sx, 0.345, sz * 0.5);
-        }
-        const t = add(MeshBuilder.CreateBox("trayStripe", { width: 0.09, height: 0.02, depth: 0.43 }, scene), stripe);
-        t.position.set(sx + (sx > 0 ? 0.24 : -0.24), 1.15, 0.62);
-      }
-      const band = add(MeshBuilder.CreateTorus("stripeBand", { diameter: 1.52, thickness: 0.05, tessellation: 24 }, scene), stripe);
-      band.position.y = 0.2;
-    }
-    const wheel = add(MeshBuilder.CreateTorus("toyWheel", { diameter: 0.24, thickness: 0.05, tessellation: 14 }, scene), toys[0]);
-    wheel.position.set(0, 1.22, 0.6);
-    wheel.rotation.x = -1.1;
-
-    // MrNapTime: little moons and stars around the walker base.
-    if (this.who.accessory === "nightcap") {
-      const sky = makeMat(scene, `skyDeco-${id}`, this.who.accentColor, { specular: 0.5, emissive: 0.35 });
-      const navy = makeMat(scene, `navyDeco-${id}`, this.who.walkerTrim, { specular: 0.3, emissive: 0.1 });
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * Math.PI * 2 + 0.2;
-        const star = add(MeshBuilder.CreateSphere("baseStar", { diameter: 0.09, segments: 5 }, scene), sky);
-        star.position.set(Math.cos(a) * 0.7, 0.36, Math.sin(a) * 0.7);
-      }
-      const moon = add(MeshBuilder.CreateSphere("baseMoon", { diameter: 0.16, segments: 8 }, scene), navy);
-      moon.position.set(0.55, 0.42, 0.15);
-      const moonCut = add(MeshBuilder.CreateSphere("moonCut", { diameter: 0.13, segments: 8 }, scene), main);
-      moonCut.position.set(0.6, 0.45, 0.2);
-    }
+    // --- Face: the base expression follows what's happening ---
+    let mood: Expression = "smile";
+    if (this.celebrate || this.turboLeft > 0 || this.fx === "boost") mood = "laugh";
+    else if (this.fx === "nap") mood = "sleepy";
+    else if (this.drifting) mood = "focus";
+    toddler.face.setBase(mood);
+    toddler.face.update(dt);
   }
 }

@@ -16,6 +16,7 @@ import { LapTimer, type LapEvent } from "./LapTimer";
 import { PICKUP_TUNING, type Collector, type PickupKind, type PickupTuning } from "./Pickups";
 import type { RosterEntry } from "./Roster";
 import type { Track } from "./Track";
+import { START_INDEX } from "./StartGrid";
 import { Walker, WALKER_TUNING, type SpeedMods } from "./Walker";
 
 /** Phones and tablets: show the on-screen buttons. */
@@ -55,7 +56,15 @@ export class Player implements Collector {
   /** Live race position (1 = first). TV Party writes this every frame. */
   place: number | null = null;
   private glanceTimer = 3 + Math.random() * 3;
+  private raceTime = 0; // seconds since GO (for the rocket start)
+  private rocketTried = false;
   private glanceHold = 0;
+
+  /**
+   * Debug/test helper: drive by itself along the racing line (used for
+   * screenshots and frame-rate tests: `__totrods.game.players[0].autopilot = "drift"`).
+   */
+  autopilot: false | "drive" | "drift" = false;
 
   /** Game sets this to decide when a reset is allowed (only while racing). */
   onResetPressed: (() => void) | null = null;
@@ -114,6 +123,10 @@ export class Player implements Collector {
     this.walker.placeAt(pose.position.add(this.track.rightAt(index).scale(lane)), pose.heading);
     this.progress = this.track.wrap(index);
     this.clearEffect();
+    if (index === START_INDEX) {
+      this.raceTime = 0;
+      this.rocketTried = false;
+    }
     this.rig.snap();
   }
 
@@ -130,6 +143,7 @@ export class Player implements Collector {
     const tuning = PICKUP_TUNING[kind];
     this.effect = { kind, tuning, left: tuning.duration };
     this.effects.setMode(tuning.effect);
+    this.walker.fx = tuning.effect; // the toddler's face follows (laugh / sleepy)
     this.hud.flash(tuning.message, 1.4, tuning.effect === "boost" ? "good" : "bad");
     this.glanceHold = 0.9; // the toddler looks back, delighted (or sleepy)
   }
@@ -137,14 +151,16 @@ export class Player implements Collector {
   private clearEffect(): void {
     this.effect = null;
     this.effects.setMode(null);
+    this.walker.fx = null;
   }
 
   private mods(): SpeedMods {
     return this.effect ? { speed: this.effect.tuning.speedMul, accel: this.effect.tuning.accelMul } : { speed: 1, accel: 1 };
   }
 
-  /** Countdown / menus: no driving, just idle animation and camera. */
+  /** Countdown / menus / results: no driving, just idle animation and camera. */
   updateIdle(dt: number): void {
+    this.walker.celebrate = this.finished; // results screen: winners keep cheering
     this.walker.animate(dt, 0);
     this.rig.update(dt);
   }
@@ -155,7 +171,16 @@ export class Player implements Collector {
       this.effect.left -= dt;
       if (this.effect.left <= 0) this.clearEffect();
     }
-    const controls = this.finished ? { throttle: 0, brake: 0.4, steer: 0, handbrake: false } : this.input.read();
+    const controls = this.finished ? { throttle: 0, brake: 0.4, steer: 0, handbrake: false } : this.autopilot ? this.autoDrive() : this.input.read();
+    // Rocket start: holding GO in the first moments after "GO!" gives a little turbo.
+    // (Generous on purpose: little kids usually hold the button anyway.)
+    this.raceTime += dt;
+    if (!this.rocketTried && this.raceTime < 0.35 && controls.throttle > 0) {
+      this.rocketTried = true;
+      this.walker.startTurbo(0.9);
+      this.hud.flash("ROCKET START!", 1.1, "good");
+    }
+    this.walker.celebrate = this.finished;
     this.walker.update(dt, controls, this.mods());
 
     // Every few seconds the toddler glances back at the camera (so you see the face).
@@ -168,6 +193,17 @@ export class Player implements Collector {
     this.walker.lookAround(this.glanceHold > 0 ? 1.15 : -this.walker.slideSpeed * 0.04);
 
     this.rig.fovKick = this.effect?.tuning.effect === "boost" ? 0.28 : this.effect ? -0.08 : 0;
+  }
+
+  /** Steer toward a point a little further along the racing line. */
+  private autoDrive() {
+    const ahead = this.track.poseAt(this.progress + 14).position;
+    const want = Math.atan2(ahead.x - this.walker.position.x, ahead.z - this.walker.position.z);
+    let diff = want - this.walker.heading;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    const steer = Math.max(-1, Math.min(1, diff * 2.5));
+    const drift = this.autopilot === "drift" && Math.abs(diff) > 0.3 && this.walker.forwardSpeed > 8;
+    return { throttle: 1, brake: 0, steer, handbrake: drift || (this.walker.drifting && Math.abs(diff) > 0.12) };
   }
 
   /** After collisions: update lap progress and react to lap events. */

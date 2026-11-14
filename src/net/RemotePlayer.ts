@@ -147,6 +147,7 @@ export class RemotePlayer {
     if (s.fx !== this.fx) {
       this.fx = s.fx;
       this.effects.setMode(s.fx);
+      this.walker.fx = s.fx; // their toddler laughs on a boost, gets sleepy on a crib
     }
   }
 

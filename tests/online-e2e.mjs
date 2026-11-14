@@ -3,7 +3,10 @@
 // Needs a running server (npm run build && npm start) plus playwright-core and Chrome:
 //   npm i -D playwright-core && BASE=http://localhost:2567/ node tests/online-e2e.mjs
 import { chromium } from "playwright-core";
-const OUT = new URL("../screenshots", import.meta.url).pathname;
+// Software-rendered headless Chrome (SwiftShader) can be 10x slower than a real GPU;
+// E2E_SLOW=3 stretches every phase wait so slow CI boxes do not fail on timing alone.
+const SLOW = Number(process.env.E2E_SLOW ?? 1);
+const OUT = process.env.OUT ?? new URL("../screenshots", import.meta.url).pathname;
 const BASE = process.env.BASE ?? "http://localhost:2567/";
 const FULL = process.env.FULL !== "0";
 const browser = await chromium.launch({ executablePath: process.env.CHROME ?? "/usr/bin/google-chrome", headless: true,
@@ -20,7 +23,7 @@ async function newClient(tag) {
   return page;
 }
 const oinfo = (p) => p.evaluate(() => window.__totrods.online.info());
-const waitPhase = (p, phase, timeout = 30000) => p.waitForFunction((ph) => window.__totrods.online.info().phase === ph, phase, { timeout, polling: 200 });
+const waitPhase = (p, phase, timeout = 30000) => p.waitForFunction((ph) => window.__totrods.online.info().phase === ph, phase, { timeout: timeout * SLOW, polling: 200 });
 const startBot = (page) => page.evaluate(() => {
   const key = (code, down) => window.dispatchEvent(new KeyboardEvent(down ? "keydown" : "keyup", { code }));
   clearInterval(window.__bot);
