@@ -111,3 +111,76 @@ code had to change):
 - **Quality.ts**: picks a tier (`high` desktop / `medium` phones / `low` old
   devices, or `?quality=low|medium|high`). Low skips floor reflections and the
   sprinkler, and has fewer butterflies.
+
+### Stage 3 — effects, camera, HUD, transitions, adaptive quality
+
+- **KartFx.ts** (one per walker, so local, split-screen, online and TV karts all
+  get it): drift smoke from the rear tyres; drift sparks that turn blue →
+  orange → pink as the mini-turbo charges; exhaust flames and two glowing
+  `TrailMesh` light trails in the kart's colour while boosting; a confetti pop
+  when a mini-turbo fires; cartoon stars around the head on bumps; dust when
+  landing a jump. Particle counts scale with the quality tier.
+- **GlowLayer** (Game.ts) for headlights/tail-lights, the lamp, the TV and the
+  boost trails only (`addIncludedOnlyMesh`), at ½ (high) or ¼ (medium) resolution.
+- **CameraRig.ts**: pulls back and widens the FOV while boosting, swings to the
+  outside of a drift, rises with jumps, shakes on bumps/landings, and slowly
+  orbits your celebrating toddler after the finish (framed left of the results card).
+- **HUD** (Hud.ts, index.html, style.css): mini-map per player (lap outline +
+  a dot for every racer, including online/TV ones; moves above the touch pads
+  on phones and shrinks in split-screen), bigger lap counter and place chip,
+  anime speed lines while boosting (CSS only), traffic-light countdown with a
+  GO! ring burst, candy-stripe screen wipe between menus/race/results, and a
+  loading screen until the first frame is ready.
+- **Adaptive quality** (Quality.ts + Game.ts `watchFrameRate`): starts at high
+  (desktop/TV) or medium (phones); if a race runs below 45 fps (high) or 28 fps
+  (medium) for ~4 s it steps down once: weaker glow and 1.25× render scaling,
+  then no glow, 1.5× scaling and cheaper shadows. `?quality=high|medium|low`
+  pins a tier.
+- **Game controllers** (Input.ts): the brief assumed gamepad support existed —
+  it didn't, so it was added: standard-layout pads drive P1 (pad 0) and P2
+  (pad 1): stick/d-pad steer, RT/A go, LT/B brake, LB/RB/X drift, Y reset.
+  Menus are still keyboard/touch/mouse.
+
+## 4. Performance notes
+
+- Headless Chrome here uses SwiftShader (software rendering on the CPU), so the
+  FPS it reports (3–8 fps at 1280×720 for both the old and new builds) says
+  nothing about real devices; it was only used to compare builds. Measured
+  there: the title scene went from 92k → ~186k vertices but from 241 → ~165
+  materials, with meshes merged per finish. On any real GPU (laptop iGPU,
+  recent phone, TV stick) this is a small scene; the adaptive watcher covers
+  weak devices.
+- Biggest per-frame costs, in order: shadow map (PCF), GlowLayer, particles,
+  split-screen viewports (each re-renders the scene). All four are scaled by
+  the quality tier / viewport budget.
+- Floor reflections are baked once per room at load (ReflectionProbe
+  RENDER_ONCE), so they are free during the race (moving karts are not reflected).
+
+## 5. What would need artist-made assets
+
+Everything here is procedural (code-built meshes + canvas-painted textures), so
+there are no third-party assets and no licences to track (no CC0 packs were
+used). To go further toward a big-studio look you would want:
+
+- **Rigged character models** (glTF, ~10–20k triangles each) made from the
+  portraits, with skinned bones, blend-shape faces and hand-made animations
+  (idle, steer, cheer, ouch) — the current toddlers are posed primitives.
+- **Kart models** with proper bevels, decals and PBR textures.
+- **Environment kit**: modelled furniture/toys with baked lightmaps, PBR
+  materials (wood, tiles, fabric), and an HDR environment map.
+- **VFX textures** (flipbook smoke/flame sprites) and **audio** (engine hum,
+  drift squeal, character voice barks).
+
+These can be dropped in with `@babylonjs/loaders` (`SceneLoader.ImportMeshAsync`)
+without touching gameplay or networking: Walker.ts only needs a root node, the
+kart body, wheel nodes and the toddler's arms/head pivots.
+
+## 6. Known limitations
+
+- Jumps are visual only (physics stays 2D), on purpose: they can't change race
+  results or desync online play.
+- Remote (online) karts show drift smoke whenever they slide and flames during
+  a milk boost, but not the coloured mini-turbo sparks/trails: the network pose
+  doesn't carry the drift charge (adding it would change the protocol).
+- Reflections are static (no moving karts in the floors).
+- Gamepads drive the karts but don't navigate the menus yet.

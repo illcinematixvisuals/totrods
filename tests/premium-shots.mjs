@@ -98,6 +98,23 @@ if (on("tour")) {
   await page.context().close();
 }
 
+if (on("devices")) {
+  // In-race HUD (touch pads, mini-map, speedo) on phones and a TV.
+  for (const [w, h, tag, mobile] of [[390, 664, "phone-portrait", true], [844, 390, "phone-landscape", true], [1920, 1080, "tv", false]]) {
+    const page = await open(w, h, "", mobile);
+    if (mobile) await page.locator("#mode1").tap();
+    else await page.keyboard.press("Enter");
+    await page.waitForTimeout(800);
+    if (mobile) await page.locator(".char-card").nth(1).tap();
+    else await page.locator(".char-card").nth(1).click();
+    await page.waitForFunction(() => window.__totrods.info().state === "racing", null, { timeout: 60000 });
+    await page.evaluate(() => (window.__totrods.game.players[0].autopilot = "drive"));
+    await page.waitForTimeout(3000);
+    await shot(page, `race-${tag}`);
+    await page.context().close();
+  }
+}
+
 if (on("countdown")) {
   const page = await open(1280, 720);
   await startSolo(page, 2);
