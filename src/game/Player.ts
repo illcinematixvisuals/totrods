@@ -10,7 +10,7 @@
 import { Scene, ShadowGenerator, Viewport } from "@babylonjs/core";
 import { CameraRig } from "./CameraRig";
 import { PlayerEffects } from "./Effects";
-import { PlayerHud, type ScreenRect } from "./Hud";
+import { PlayerHud, type MapRacer, type ScreenRect } from "./Hud";
 import { PlayerInput, type InputSource, type KeyBindings } from "./Input";
 import { LapTimer, type LapEvent } from "./LapTimer";
 import { PICKUP_TUNING, type Collector, type PickupKind, type PickupTuning } from "./Pickups";
@@ -235,8 +235,16 @@ export class Player implements Collector {
       best: this.timer.bestLap,
       effect: this.effect?.tuning.effect ?? null,
       effectLeft01: this.effect ? this.effect.left / this.effect.tuning.duration : 0,
+      turbo: this.walker.turboLeft > 0 || this.effect?.tuning.effect === "boost",
     });
     if (this.config.showPlace) this.hud.setPlace(this.place);
+    // Every visible walker (local, split-screen, online, TV) goes on the mini-map.
+    const racers: MapRacer[] = [];
+    for (const w of Walker.all) {
+      if (!w.root.isEnabled()) continue;
+      racers.push({ x: w.position.x, z: w.position.z, color: w.who.walkerColor, self: w === this.walker });
+    }
+    this.hud.drawMinimap(this.track.samples, racers);
   }
 
   /** 0..1+ speed for the rolling sound. */

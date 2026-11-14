@@ -21,6 +21,10 @@
     <template id="hudTemplate">
       <div class="hud hidden">
         <div class="fx-tint"></div>
+        <!-- Anime-style speed lines, faded in while boosting (pure CSS, no 3D cost). -->
+        <div class="speed-lines"></div>
+        <!-- Mini-map: Hud.ts draws the lap outline and a dot per racer. -->
+        <canvas class="minimap" data-hud="minimap" width="180" height="180"></canvas>
         <div class="panel who-panel">
           <div class="portrait-slot" data-hud="portrait"></div>
           <div>
@@ -47,6 +51,18 @@
     </template>
 
     <div id="countdown" class="countdown hidden"></div>
+
+    <!-- Screen transitions: a quick colourful wipe between menus and the race. -->
+    <div id="wipe" class="wipe"></div>
+
+    <!-- Loading screen: shown until the 3D world has drawn its first frame. -->
+    <div id="loading" class="loading">
+      <div class="loading-card">
+        <div class="loading-wheel"><span></span></div>
+        <div class="loading-title">TotRods</div>
+        <div class="loading-tip">Warming up the walkers…</div>
+      </div>
+    </div>
 
     <div id="titleScreen" class="screen title-screen">
       <div class="card title-card">

@@ -21,9 +21,17 @@ function isPhoneController(): boolean {
   return params.has("join") || path.endsWith("/play");
 }
 
+/** Fade out the loading screen (index.html #loading). Safe to call more than once. */
+function hideLoading(): void {
+  document.getElementById("loading")?.classList.add("done");
+}
+
 async function boot(): Promise<void> {
+  // Whatever happens, never leave the loading screen up for more than 8 s.
+  window.setTimeout(hideLoading, 8000);
   // Phone join links skip the 3D engine entirely — this tab is just a controller.
   if (isPhoneController()) {
+    document.getElementById("loading")?.remove(); // no 3D world to wait for
     setUpPhoneFriendlyPage(() => undefined);
     bootPhoneController();
     return;
@@ -83,6 +91,9 @@ async function boot(): Promise<void> {
     game.scene.render();
   });
   window.addEventListener("resize", () => engine.resize());
+  // Fade the loading screen out once every shader is compiled and the first
+  // frame is on screen (boot() also set an 8 s safety timer).
+  game.scene.executeWhenReady(() => window.setTimeout(hideLoading, 150));
 }
 
 /**

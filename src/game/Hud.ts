@@ -47,6 +47,15 @@ export interface HudFrame {
   best: number | null;
   effect: EffectKind | null;
   effectLeft01: number; // 1 = just picked up, 0 = worn off
+  turbo?: boolean; // drift mini-turbo / rocket start / milk boost → speed lines
+}
+
+/** One racer on the mini-map. */
+export interface MapRacer {
+  x: number;
+  z: number;
+  color: string;
+  self: boolean;
 }
 
 /** A screen-space rectangle in 0..1 units (same convention as Babylon's Viewport). */
@@ -63,6 +72,11 @@ const GAUGE_MAX_MPH = 60;
 export class PlayerHud {
   readonly root: HTMLElement;
   private toastTimer = 0;
+  // Mini-map: the lap outline is drawn ONCE into an offscreen canvas, then each
+  // update just copies it and adds the racer dots (cheap, ~10 times a second).
+  private mapBg: HTMLCanvasElement | null = null;
+  private mapXf: ((x: number, z: number) => [number, number]) | null = null;
+  private mapLast = 0;
 
   constructor(label: string, who: RosterEntry) {
     const tpl = byId<HTMLTemplateElement>("hudTemplate");
@@ -92,6 +106,8 @@ export class PlayerHud {
 
   /** Place this HUD over a viewport (flip Y: CSS top=0, Babylon bottom=0). */
   setRect(r: ScreenRect): void {
+    // Small split-screen views get a smaller mini-map and panels.
+    this.root.classList.toggle("compact", r.width < 0.5 || r.height < 0.5);
     const s = this.root.style;
     s.left = `${r.x * 100}%`;
     s.width = `${r.width * 100}%`;
@@ -120,8 +136,71 @@ export class PlayerHud {
     this.el("bestTime").textContent = formatTime(f.best);
     this.root.classList.toggle("fx-boost", f.effect === "boost");
     this.root.classList.toggle("fx-nap", f.effect === "nap");
+    this.root.classList.toggle("turbo", !!f.turbo);
     const bar = this.el("effectBar");
     bar.style.transform = `scaleX(${f.effect ? f.effectLeft01 : 0})`;
+  }
+
+  /**
+   * Draw the mini-map: the lap (from the track's centre-line samples) with a
+   * chequered start mark, and a dot per racer (yours is bigger, with a ring).
+   */
+  drawMinimap(path: ReadonlyArray<{ x: number; z: number }>, racers: readonly MapRacer[]): void {
+    const now = performance.now();
+    if (now - this.mapLast < 100 && this.mapBg) return; // ~10 redraws a second is plenty
+    this.mapLast = now;
+    const canvas = this.el("minimap") as HTMLCanvasElement;
+    const ctx = canvas.getContext("2d");
+    if (!ctx || canvas.offsetParent === null) return; // hidden
+    const W = canvas.width;
+    if (!this.mapBg || !this.mapXf) {
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (const p of path) {
+        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+        z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z);
+      }
+      const pad = 16;
+      const scale = (W - pad * 2) / Math.max(x1 - x0, z1 - z0);
+      const ox = (W - (x1 - x0) * scale) / 2;
+      const oz = (W - (z1 - z0) * scale) / 2;
+      // North (+Z) is up on the map, +X is right.
+      const xf = (x: number, z: number): [number, number] => [ox + (x - x0) * scale, W - (oz + (z - z0) * scale)];
+      this.mapXf = xf;
+      const bg = document.createElement("canvas");
+      bg.width = bg.height = W;
+      const b = bg.getContext("2d")!;
+      b.lineJoin = b.lineCap = "round";
+      const stroke = (width: number, color: string): void => {
+        b.beginPath();
+        path.forEach((p, i) => (i === 0 ? b.moveTo(...xf(p.x, p.z)) : b.lineTo(...xf(p.x, p.z))));
+        b.closePath();
+        b.lineWidth = width;
+        b.strokeStyle = color;
+        b.stroke();
+      };
+      stroke(15, "rgba(19,35,91,0.85)");
+      stroke(10, "#ffffff");
+      stroke(3, "#ffd400");
+      const [sx, sy] = xf(path[0].x, path[0].z);
+      b.fillStyle = "#111";
+      b.fillRect(sx - 7, sy - 3, 14, 6);
+      b.fillStyle = "#fff";
+      for (let i = 0; i < 4; i++) b.fillRect(sx - 7 + i * 3.5 + (i % 2) * 0, sy - 3 + (i % 2) * 3, 3.5, 3);
+      this.mapBg = bg;
+    }
+    ctx.clearRect(0, 0, W, W);
+    ctx.drawImage(this.mapBg, 0, 0);
+    // Others first, you on top.
+    for (const r of [...racers].sort((a, b) => Number(a.self) - Number(b.self))) {
+      const [x, y] = this.mapXf(r.x, r.z);
+      ctx.beginPath();
+      ctx.arc(x, y, r.self ? 9 : 6.5, 0, Math.PI * 2);
+      ctx.fillStyle = r.color;
+      ctx.fill();
+      ctx.lineWidth = r.self ? 3.5 : 2;
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+    }
   }
 
   dispose(): void {
@@ -182,6 +261,8 @@ export class Screens {
 
   /** Show exactly one screen (or none). */
   only(el: HTMLElement | null): void {
+    const current = this.allScreens.find((s) => !s.classList.contains("hidden")) ?? null;
+    if (current !== el) Screens.transition();
     for (const s of this.allScreens) s.classList.toggle("hidden", s !== el);
   }
 
@@ -219,6 +300,15 @@ export class Screens {
     this.only(null);
   }
 
+  /** Play the candy-stripe wipe across the whole screen (menus ↔ race ↔ results). */
+  static transition(): void {
+    const wipe = document.getElementById("wipe");
+    if (!wipe) return;
+    wipe.classList.remove("run");
+    void wipe.offsetWidth; // restart the CSS animation
+    wipe.classList.add("run");
+  }
+
   setCountdown(text: string | null): void {
     if (text === null) {
       this.countdown.classList.add("hidden");
@@ -226,7 +316,10 @@ export class Screens {
     }
     this.countdown.classList.remove("hidden", "pop");
     this.countdown.classList.toggle("go", text === "GO!");
-    this.countdown.textContent = text;
+    // Toy traffic lights: 3 → one red, 2 → two red, 1 → three red, GO! → all green.
+    const n = text === "GO!" ? 3 : Math.max(0, 4 - Number(text));
+    const lamp = (i: number): string => `<span class="cd-lamp ${text === "GO!" ? "green" : i < n ? "red" : ""}"></span>`;
+    this.countdown.innerHTML = `<div class="cd-lights">${lamp(0)}${lamp(1)}${lamp(2)}</div><div class="cd-num">${escapeHtml(text)}</div>`;
     void this.countdown.offsetWidth; // restart the CSS animation
     this.countdown.classList.add("pop");
   }
