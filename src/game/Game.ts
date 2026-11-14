@@ -334,7 +334,9 @@ export class Game {
       this.glow = null;
       setGlowSink(null);
       this.qualityScale = 1.5;
-      this.shadows.usePercentageCloserFiltering = false; // plain shadow lookups: cheaper
+      // Redraw the shadow map every other frame. (Don't switch the PCF filter
+      // off at runtime: frozen materials keep their PCF shader and WebGL then
+      // complains about a sampler/texture mismatch.)
       this.shadows.getShadowMap()!.refreshRate = 2;
     }
     this.engine.setHardwareScalingLevel(this.viewportScale * this.qualityScale);
